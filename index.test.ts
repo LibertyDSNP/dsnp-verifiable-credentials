@@ -12,47 +12,35 @@ type Actor = {
   dsnpUserId: bigint;
 };
 
-const accreditor: Actor = {
-  keyPair: await Ed25519Multikey.generate({
-    controller: "did:dsnp:123456",
-  }),
-  dsnpUserId: 123456n,
-};
+async function makeActor(dsnpUserId: bigint): Actor {
+  return {
+    keyPair: await Ed25519Multikey.generate({
+      controller: `did:dsnp:${dsnpUserId}`,
+    }),
+    dsnpUserId,
+  };
+}
 
-const seller: Actor = {
-  keyPair: await Ed25519Multikey.generate({
-    controller: "did:dsnp:654321",
-  }),
-  dsnpUserId: 654321n,
-};
-
-const fakeSeller: Actor = {
-  keyPair: await Ed25519Multikey.generate({
-    controller: "did:dsnp:654322",
-  }),
-  dsnpUserId: 654322n,
-};
-
-const buyer: Actor = {
-  keyPair: await Ed25519Multikey.generate({
-    controller: "did:dsnp:999999",
-  }),
-  dsnpUserId: 999999n,
-};
-const skey = await seller.keyPair.export({ publicKey: true });
+const accreditor = await makeActor(123456n);
+const seller = await makeActor(654321n);
+const fakeSeller = await makeActor(654322n);
+const buyer = await makeActor(999999n);
 
 const actors = new Map()
   .set(accreditor.dsnpUserId, accreditor)
-      .set(seller.dsnpUserId, seller)
-      .set(fakeSeller.dsnpUserId, fakeSeller)
+  .set(seller.dsnpUserId, seller)
+  .set(fakeSeller.dsnpUserId, fakeSeller)
   .set(buyer.dsnpUserId, buyer);
 
 // Mock a DSNP system DID resolver
 registerDSNPResolver(async (dsnpUserId: bigint) => {
+  const assertionMethod = [
+    await actors.get(dsnpUserId).keyPair.export({ publicKey: true }),
+  ];
   const controller = `did:dsnp:${dsnpUserId}`;
   const output = {
     "@context": ["https://www.w3.org/ns/did/v1"],
-    id: controller,
+    id: assertionMethod[0].controller,
     assertionMethod: [
       await actors.get(dsnpUserId).keyPair.export({ publicKey: true }),
     ],
@@ -64,9 +52,17 @@ const resolver = new Resolver(getResolver());
 setDIDResolver(resolver);
 
 // A full implementation would look at indexed DSNP content to make this determination
-const credentialChecker = async (subjectDid: string, attributeSetType: string): Promise<boolean> => {
+const credentialChecker = async (
+  subjectDid: string,
+  attributeSetType: string,
+): Promise<boolean> => {
   // In this example, the seller has been designated a VerifiedSellerPlatform by the accreditor
-  if (subjectDid === "did:dsnp:" + seller.dsnpUserId && attributeSetType === "dsnp://" + accreditor.dsnpUserId + "#VerifiedSellerPlatform") return true;
+  if (
+    subjectDid === "did:dsnp:" + seller.dsnpUserId &&
+    attributeSetType ===
+      "dsnp://" + accreditor.dsnpUserId + "#VerifiedSellerPlatform"
+  )
+    return true;
   return false;
 };
 
@@ -157,54 +153,53 @@ const unsignedVC: VerifiableCredential = {
 describe("dsnp-verifiable-credentials", () => {
   it("rejects invalid issuer DID", async () => {
     const testVC = structuredClone(unsignedVC);
-    testVC.issuer = "https://unacceptable.com";
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "https://unacceptable.com",
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+
+    // Example key from @digitalbazaar/data-integrity README
+    const controller = "https://example.edu/issuers/565049";
+    const keyPair = await Ed25519Multikey.from({
+      "@context": "https://w3id.org/security/multikey/v1",
+      type: "Multikey",
+      controller,
+      id: controller + "#z6MkwXG2WjeQnNxSoynSGYU8V9j3QzP3JSqhdmkHc6SaVWoT",
+      publicKeyMultibase: "z6MkwXG2WjeQnNxSoynSGYU8V9j3QzP3JSqhdmkHc6SaVWoT",
+      secretKeyMultibase:
+        "zrv3rbPamVDGvrm7LkYPLWYJ35P9audujKKsWn3x29EUiGwwhdZQd" +
+        "1iHhrsmZidtVALBQmhX3j9E5Fvx6Kr29DPt6LH",
+    });
+
+    testVC.issuer = controller;
+    const signResult = await sign(testVC, keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("invalidDid");
   });
 
   it("rejects if proof not from issuer", async () => {
     const testVC = structuredClone(unsignedVC);
-    const signedVC = await sign(
-      testVC,
-      accreditor.keyPair.signer(),
-      "did:dsnp:" +
-        accreditor.dsnpUserId +
-        "#" +
-        accreditor.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, accreditor.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("proofNotFromIssuer");
   });
 
   it("rejects if signature is from wrong issuer", async () => {
     const testVC = structuredClone(unsignedVC);
-    const signedVC = await sign(
-      testVC,
-      accreditor.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, accreditor.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
-    expect(verifyResult.reason).toEqual("signatureFailsVerification");
+    expect(verifyResult.reason).toEqual("proofNotFromIssuer");
   });
 
   it("rejects if credential is expired", async () => {
     const testVC = structuredClone(unsignedVC);
     testVC.expirationDate = new Date().toISOString();
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
     await setTimeout(100);
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("signatureFailsVerification");
   });
@@ -212,12 +207,9 @@ describe("dsnp-verifiable-credentials", () => {
   it("rejects if schema URL is not https", async () => {
     const testVC = structuredClone(unsignedVC);
     testVC.credentialSchema.id = "http://insecure.com";
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("schemaUrlNotHttps");
   });
@@ -229,12 +221,9 @@ describe("dsnp-verifiable-credentials", () => {
     testSchemaVC.type = ["SomeOtherType", "VerifiableCredential"];
     addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("unknownSchemaType");
   });
@@ -246,12 +235,9 @@ describe("dsnp-verifiable-credentials", () => {
     testSchemaVC.credentialSubject.jsonSchema.title = "SomeOtherTitle";
     addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("credentialTitleMismatch");
   });
@@ -262,53 +248,47 @@ describe("dsnp-verifiable-credentials", () => {
 
     const testVC = structuredClone(unsignedVC);
     testVC.credentialSubject.href = 123;
-    const signedVC = await sign(
-      testVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("schemaValidationError");
   });
 
-  it("rejects if credential issuer is not trusted", async() => {
+  it("rejects if credential issuer is not trusted", async () => {
     const testSchemaVC = structuredClone(unsignedSchemaVC);
     addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
     const testVC = structuredClone(unsignedVC);
     testVC.issuer = "did:dsnp:" + fakeSeller.dsnpUserId;
-    const signedVC = await sign(testVC, fakeSeller.keyPair.signer(), "did:dsnp:" + fakeSeller.dsnpUserId + "#" + fakeSeller.keyPair.publicKeyMultibase);
-    let verifyResult = await verify(signedVC, resolver, credentialChecker);
+    const signResult = await sign(testVC, fakeSeller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
+    let verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(false);
     expect(verifyResult.reason).toEqual("untrustedIssuer");
   });
 
   it("works for valid documents", async () => {
+    const testVC = structuredClone(unsignedVC);
+    const testSchemaVC = structuredClone(unsignedSchemaVC);
     // Sign the schema
-    const signedSchemaVC = await sign(
-      unsignedSchemaVC,
+    const signSchemaResult = await sign(
+      testSchemaVC,
       accreditor.keyPair.signer(),
-      "did:dsnp:" +
-        accreditor.dsnpUserId +
-        "#" +
-        accreditor.keyPair.publicKeyMultibase,
     );
+    expect(signSchemaResult.signed).toEqual(true);
 
-    let verifyResult = await verify(signedSchemaVC, resolver, credentialChecker);
+    let verifyResult = await verify(testSchemaVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(true);
 
     // Register the schema with the document loader cache
-    addToCache({ document: signedSchemaVC, documentUrl: signedSchemaVC.id });
+    addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
     // Sign a credential that uses the schema
-    const signedVC = await sign(
-      unsignedVC,
-      seller.keyPair.signer(),
-      "did:dsnp:" + seller.dsnpUserId + "#" + seller.keyPair.publicKeyMultibase,
-    );
+    const signResult = await sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toEqual(true);
 
-    verifyResult = await verify(signedVC, resolver, credentialChecker);
+    verifyResult = await verify(testVC, resolver, credentialChecker);
     expect(verifyResult.verified).toEqual(true);
     expect(verifyResult.display).not.toBeNull();
   });

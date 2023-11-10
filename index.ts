@@ -15,12 +15,9 @@ import jsonld from "jsonld";
 import dataIntegrityContext from "@digitalbazaar/data-integrity-context";
 import credentialsContext from "credentials-context";
 
-import type {
-  VerifiableCredential,
-  VerifiableCredentialWithEd25519Proof,
-} from "./types.js";
+import type { VerifiableCredential } from "./types.js";
 
-export type { VerifiableCredential, VerifiableCredentialWithEd25519Proof };
+export type { VerifiableCredential };
 
 const ajv = new Ajv2020.default();
 
@@ -102,23 +99,37 @@ export const documentLoader = extendContextLoader(async (url: string) => {
   return output;
 });
 
+export type SignResult = {
+  signed: boolean;
+  reason?: "exception";
+  context?: any;
+};
+
 export const sign = async (
   credential: VerifiableCredential,
   signer: {
+    id: string;
     algorithm: string;
     sign: (obj: any) => Uint8Array;
   },
-  issuer: string,
-) => {
-  const suite = new DataIntegrityProof({ signer, cryptosuite });
-  suite.verificationMethod = issuer;
+): Promise<SignResult> => {
+  try {
+    const suite = new DataIntegrityProof({ signer, cryptosuite });
 
-  const signedCredential = await vc.issue({
-    credential,
-    suite,
-    documentLoader,
-  });
-  return signedCredential;
+    await vc.issue({
+      credential,
+      suite,
+      documentLoader,
+    });
+  } catch (e) {
+    return {
+      signed: false,
+      reason: "exception",
+      context: e,
+    };
+  }
+
+  return { signed: true };
 };
 
 const didRegex = new RegExp(
@@ -142,9 +153,12 @@ export type VerifyResult = {
 };
 
 export const verify = async (
-  credential: VerifiableCredentialWithEd25519Proof,
+  credential: VerifiableCredential,
   resolver: { resolve: (did: string) => DIDResolutionResult },
-  credentialChecker: (subjectDid: string, attributeSetType: string) => Promise<boolean>,
+  credentialChecker: (
+    subjectDid: string,
+    attributeSetType: string,
+  ) => Promise<boolean>,
 ): Promise<VerifyResult> => {
   try {
     // issuer should be a valid DID
@@ -227,7 +241,11 @@ export const verify = async (
     }
 
     // Verify the schema credential's proof
-    const schemaVerifyResult = await verify(schemaCredential, resolver, credentialChecker);
+    const schemaVerifyResult = await verify(
+      schemaCredential,
+      resolver,
+      credentialChecker,
+    );
 
     // Validate the credential against its schema
     const valid = ajv.validate(
@@ -268,7 +286,7 @@ export const verify = async (
           promises.push(credentialChecker(credential.issuer, attributeSetType));
         });
         const results = await Promise.all(promises);
-        if (!results.all((result) => result)) {
+        if (!results.every((result) => result)) {
           return {
             verified: false,
             reason: "untrustedIssuer",

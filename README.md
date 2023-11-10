@@ -51,23 +51,30 @@ import * as Ed25519Multikey from "@digitalbazaar/ed25519-multikey";
 const dsnpDid = "did:dsnp:123456";
 const keyPair = await Ed25519Multikey.generate({ controller: dsnpDid });
 const signer = keyPair.signer();
-const verificationMethod = dsnpDid + "#" + keyPair.publicKeyMultibase; // format determined by DSNP system
 ```
 
-Then simply request a signed copy of an instance of the `VerifiableCredential` type:
+Note: Unless you assign a specific `id` within the `generate()` options, the generated `id` value (and hence `verificationMethod` for the resulting proof) will be set to `${controller}#${publicKeyMultibase}`.
+
+Using this library, you can then request a signature be applied to an instance of the `VerifiableCredential` type:
 
 ```
-import { signedCopyOf } from "@dsnp/verifiable-credentials";
+import { sign } from "@dsnp/verifiable-credentials";
 
-const signedVC = await signedCopyOf(unsignedVC, signer, verificationMethod);
+const signResult = await sign(unsignedVC, signer);
+if (signResult.signed) {
+  // Success
+}
 ```
 
-The resulting object is a `VerifiableCredentialWithEd25519Proof`.
+On failure, `signResult.signed` will be `false` with the relevant error captured in `signResult.reason` and `signResult.context`.
 
 ## Verifying a Verifiable Credential
 
- You must pass a DID resolver to the `verify()` method.
-For a resolver that can resolve DSNP DIDs, use the `@dsnp/did-resolver` package along with a DSNP system-specific plugin.
+The `verify()` method takes three parameters:
+
+1. A signed `VerifiableCredential` object.
+2. A DID resolver.
+  For a resolver that can resolve DSNP DIDs, use the `@dsnp/did-resolver` package along with a DSNP system-specific plugin.
 
 ```
 import { Resolver } from "did-resolver";
@@ -77,16 +84,21 @@ import "dsnp-did-resolver-plugin-{system}";
 const resolver = new Resolver(getResolver());
 ```
 
-Then perform verification:
+3. A credential checker function that takes a DID and a DSNP `attributeSetType`, and returns a `Promise<boolean>`.
+  This allows DSNP schema authors to designate the credentials an issuer must possess in order for their attestation to be trusted.
+
+To perform verification:
 
 ```
 import { verify } from "@dsnp/verifiable-credentials";
 
-const verifyResult = await verify(signedVC, resolver);
-if (verifyResult) {
+const verifyResult = await verify(signedVC, resolver, credentialChecker);
+if (verifyResult.verified) {
   // Success
 }
 ```
+
+On failure, `verifyResult.verified` will be `false` with the relevant error captured in `verifyResult.reason` and `verifyResult.context`.
 
 ### Implementation notes
 
@@ -102,7 +114,7 @@ Specification-related context files are pre-cached.
 It does not cache DID documents, but this can be tuned on the resolver itself.
 
 You can also explicitly add documents to the cache (as strings or objects) using the `addToCache` function.
-This is useful for testing, or if you have an application that relies on well known credential documents, for example.
+This is useful for testing, or if you have an application that relies on well known schema documents, for example.
 
 ```
 import { addToCache } from "@dsnp/verifiable-credentials";
