@@ -1,0 +1,45 @@
+{
+  "name": "@dsnp/verifiable-credentials",
+  "version": "0.0.0",
+  "description": "A library to use W3C Verifiable Credentials with DSNP",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "format": "tsc --noEmit --pretty && eslint --fix \"**/*.ts\"",
+    "lint": "tsc --noEmit --pretty && eslint \"**/*.ts\""
+  },
+  "author": "Amplica Labs",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@digitalbazaar/data-integrity": "^1.4.1",
+    "@digitalbazaar/data-integrity-context": "^1.0.0",
+    "@digitalbazaar/ed25519-multikey": "^1.0.1",
+    "@digitalbazaar/eddsa-2022-cryptosuite": "^1.0.0",
+    "@digitalbazaar/vc": "^6.0.2",
+    "@dsnp/did-resolver": "file:../dsnp-did-resolver",
+    "ajv": "^8.12.0",
+    "credentials-context": "^2.0.0",
+    "did-resolver": "^4.1.0",
+    "jsonld": "^8.3.1",
+    "jsonld-signatures": "^11.2.1",
+    "multiformats": "^12.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.10",
+    "@typescript-eslint/eslint-plugin": "^6.9.1",
+    "@typescript-eslint/parser": "^6.9.1",
+    "eslint": "^8.53.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.29.0",
+    "eslint-plugin-jest": "^27.6.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "nodemon": "^3.0.1",
+    "prettier": "^3.0.3",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2",
+    "vite": "^4.5.0",
+    "vitest": "^0.34.6"
+  }
+}
