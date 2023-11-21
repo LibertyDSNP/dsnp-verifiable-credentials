@@ -192,7 +192,7 @@ export class DSNPVC {
     return { signed: true };
   }
 
-  async verify(credential: VerifiableCredential, attributeSetType: string | null = null): Promise<VerifyResult> {
+  async verify(credential: VerifiableCredential, attributeSetType?: string): Promise<VerifyResult> {
     try {
       // issuer should be a valid DID
       if (!didRegex.test(credential.issuer)) {
