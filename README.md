@@ -15,12 +15,12 @@ It can be used to generate and verify Verifiable Credentials with proofs based o
 
 Verification in a DSNP context involves answering several questions:
 
-* Is the credential expired?
+* Is the credential unexpired?
 * Can the signature on the credential be verified against the issuer's public key published via DSNP?
-* Does the credential's claim data validate against the JSON schema specified?
+* If the credential specifies a schema, does the credential's claim data validate against the JSON schema specified?
 * If the JSON schema itself is signed, is that signature valid and unexpired?
-* Is the issuer trusted to issue credentials of this type (as determined by the schema creator)? [not yet implemented]
-* How should the validity of the credential be displayed in a social networking user interface? [not yet implemented]
+* Is the issuer trusted to issue credentials of this type (as determined by the schema creator)?
+* How should the validity of the credential be displayed in a social networking user interface?
 
 ## Cryptography
 
@@ -37,7 +37,23 @@ This library utilizes a number of open source projects and the authors are grate
 
 # Usage
 
-## Prerequisites
+## Configuring an instance of DSNPVC
+
+The `DSNPVC` class encapsulates signing and verifying functions, as well as a document cache.
+Its constructor takes an object that must contain the following keys:
+
+- `resolver`: An instance of `Resolver` from the `did-resolver` package.
+
+```
+import { DSNPVC } from "@dsnp/verifiable-credentials";
+import { Resolver } from "did-resolver";
+import { getResolver } from "@dsnp/did-resolver";
+import { FooPlugin } from "dsnp-did-resolver-plugin-{foo}";
+
+const resolver = new Resolver(getResolver([new FooPlugin(/* options */)]));
+
+const vc = new DSNPVC({ resolver });
+```
 
 ## Signing a Verifiable Credential
 
@@ -58,9 +74,11 @@ Note: Unless you assign a specific `id` within the `generate()` options, the gen
 Using this library, you can then request a signature be applied to an instance of the `VerifiableCredential` type:
 
 ```
-import { sign } from "@dsnp/verifiable-credentials";
+import { DSNPVC } from "@dsnp/verifiable-credentials";
 
-const signResult = await sign(unsignedVC, signer);
+const vc = new DSNPVC({ resolver });
+
+const signResult = await vc.sign(unsignedVC, signer);
 if (signResult.signed) {
   // Success
 }
@@ -70,29 +88,16 @@ On failure, `signResult.signed` will be `false` with the relevant error captured
 
 ## Verifying a Verifiable Credential
 
-The `verify()` method takes three parameters:
-
-1. A signed `VerifiableCredential` object.
-2. A DID resolver.
-  For a resolver that can resolve DSNP DIDs, use the `@dsnp/did-resolver` package along with a DSNP system-specific plugin.
-
-```
-import { Resolver } from "did-resolver";
-import { getResolver } from "@dsnp/did-resolver";
-import "dsnp-did-resolver-plugin-{system}";
-
-const resolver = new Resolver(getResolver());
-```
-
-3. A credential checker function that takes a DID and a DSNP `attributeSetType`, and returns a `Promise<boolean>`.
-  This allows DSNP schema authors to designate the credentials an issuer must possess in order for their attestation to be trusted.
+The `verify()` method takes a signed `VerifiableCredential` object and an optional `string` indicating the expected DSNP attribute set type.
 
 To perform verification:
 
 ```
-import { verify } from "@dsnp/verifiable-credentials";
+import { DSNPVC } from "@dsnp/verifiable-credentials";
 
-const verifyResult = await verify(signedVC, resolver, credentialChecker);
+const vc = new DSNPVC({ resolver });
+
+const verifyResult = await vc.verify(signedVC, expectedAttributeSetType);
 if (verifyResult.verified) {
   // Success
 }
@@ -117,10 +122,23 @@ You can also explicitly add documents to the cache (as strings or objects) using
 This is useful for testing, or if you have an application that relies on well known schema documents, for example.
 
 ```
-import { addToCache } from "@dsnp/verifiable-credentials";
-
-addToCache({
+vc.addToCache({
   documentUrl: mySchemaCredentialUrl,
   document: mySignedSchemaCredential
 });
+```
+
+## Attribute Set Type calculation
+
+It is sometimes useful (for instance, when created an Attribute Set Announcement) to generate the DSNP Attribute Set Type for a credential.
+This can be done independently from signing or verification with the function `getAttributeSetType`.
+
+```
+const attributeSetType = await vc.getAttributeSetType(credentialUrl);
+```
+
+If the credential schema document (string or object) is already resolved, you can skip the document loader by passing it in as a second argument:
+
+```
+const attributeSetType = await vc.getAttributeSetType(credentialUrl, credentialSchemaDocument);
 ```

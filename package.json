@@ -13,12 +13,12 @@
   "author": "Amplica Labs",
   "license": "Apache-2.0",
   "dependencies": {
-    "@digitalbazaar/data-integrity": "^1.4.1",
-    "@digitalbazaar/data-integrity-context": "^1.0.0",
+    "@digitalbazaar/data-integrity": "^2.0.0",
+    "@digitalbazaar/data-integrity-context": "^2.0.0",
     "@digitalbazaar/ed25519-multikey": "^1.0.1",
     "@digitalbazaar/eddsa-2022-cryptosuite": "^1.0.0",
-    "@digitalbazaar/vc": "^6.0.2",
-    "@dsnp/did-resolver": "file:../dsnp-did-resolver",
+    "@digitalbazaar/vc": "^6.2.0",
+    "@dsnp/did-resolver": "^0.0.3",
     "ajv": "^8.12.0",
     "credentials-context": "^2.0.0",
     "did-resolver": "^4.1.0",
@@ -27,19 +27,19 @@
     "multiformats": "^12.1.3"
   },
   "devDependencies": {
-    "@types/node": "^20.8.10",
-    "@typescript-eslint/eslint-plugin": "^6.9.1",
-    "@typescript-eslint/parser": "^6.9.1",
-    "eslint": "^8.53.0",
+    "@types/node": "^20.9.3",
+    "@typescript-eslint/eslint-plugin": "^6.12.0",
+    "@typescript-eslint/parser": "^6.12.0",
+    "eslint": "^8.54.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-jest": "^27.6.0",
     "eslint-plugin-prettier": "^5.0.1",
     "nodemon": "^3.0.1",
-    "prettier": "^3.0.3",
+    "prettier": "^3.1.0",
     "ts-node": "^10.9.1",
-    "typescript": "^5.2.2",
-    "vite": "^4.5.0",
+    "typescript": "^5.3.2",
+    "vite": "^5.0.0",
     "vitest": "^0.34.6"
   }
 }
