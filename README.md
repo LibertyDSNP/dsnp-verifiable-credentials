@@ -48,16 +48,16 @@ Its constructor takes an object that must contain the following keys:
 import { DSNPVC } from "@dsnp/verifiable-credentials";
 import { Resolver } from "did-resolver";
 import { getResolver } from "@dsnp/did-resolver";
-import { FooPlugin } from "dsnp-did-resolver-plugin-{foo}";
+import { FooResolver } from "dsnp-did-resolver-{foo}";
 
-const resolver = new Resolver(getResolver([new FooPlugin(/* options */)]));
+const resolver = new Resolver(getResolver([new FooResolver(/* options */)]));
 
 const vc = new DSNPVC({ resolver });
 ```
 
 ## Signing a Verifiable Credential
 
-To apply a signature, provide a `signer` object with a `sign` function, `algorithm: "Ed25519"`, and a `verificationMethod` representing the full reference to the published public key corresponding to the signature key.
+To apply a signature, provide a `signer` object with a `sign` function, `algorithm: "Ed25519"`, and an `id` representing the full reference to the published public key corresponding to the signature key.
 
 Setup using the Ed25519Multikey library:
 
@@ -130,7 +130,7 @@ vc.addToCache({
 
 ## Attribute Set Type calculation
 
-It is sometimes useful (for instance, when created an Attribute Set Announcement) to generate the DSNP Attribute Set Type for a credential.
+It is sometimes useful (for instance, when creating an Attribute Set Announcement) to generate the DSNP Attribute Set Type for a credential.
 This can be done independently from signing or verification with the function `getAttributeSetType`.
 
 ```
