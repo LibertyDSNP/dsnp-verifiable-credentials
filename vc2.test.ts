@@ -21,16 +21,16 @@ async function makeActor(dsnpUserId: bigint, isAccredited: boolean): Actor {
   };
 }
 
-// Accreditor controls the ProofOfPurchase schema and determines which sellers are certified to issue ProofOfPurchase documents
+// Accreditor controls the VehicleOwner schema and determines which dealerships are certified to issue VehicleOwner documents
 const accreditor = await makeActor(123456n);
-const seller = await makeActor(654321n, true);
-const fakeSeller = await makeActor(654322n);
+const dealer = await makeActor(654321n, true);
+const fakeDealer = await makeActor(654322n);
 const buyer = await makeActor(999999n, true);
 
 const actors = new Map()
   .set(accreditor.dsnpUserId, accreditor)
-  .set(seller.dsnpUserId, seller)
-  .set(fakeSeller.dsnpUserId, fakeSeller)
+  .set(dealer.dsnpUserId, dealer)
+  .set(fakeDealer.dsnpUserId, fakeDealer)
   .set(buyer.dsnpUserId, buyer);
 
 // Mock a DSNP system DID resolver
@@ -46,7 +46,7 @@ class MockResolver implements DSNPResolver {
               controller +
               "#" +
               encodeURIComponent(
-                `did:dsnp:${accreditor.dsnpUserId}#VerifiedSellerPlatform`,
+                `did:dsnp:${accreditor.dsnpUserId}#CarDealership`,
               ),
             type: "DSNPAttributeSet",
             serviceEndpoint: "mock://accreditation",
@@ -66,11 +66,8 @@ class MockResolver implements DSNPResolver {
 const unsignedSchemaVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    {
-      "@vocab": "dsnp://123456#",
-    },
   ],
-  id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+  id: "https://dsnp.org/schema/examples/vehicle_owner.json",
   type: ["VerifiableCredential", "JsonSchemaCredential"],
   issuer: "did:dsnp:123456",
   issuanceDate: new Date().toISOString(),
@@ -86,24 +83,23 @@ const unsignedSchemaVC: VerifiableCredential = {
 
     jsonSchema: {
       $schema: "https://json-schema.org/draft/2020-12/schema",
-      title: "ProofOfPurchase",
+      title: "VehicleOwner",
       type: "object",
       properties: {
         credentialSubject: {
           type: "object",
           properties: {
-            interactionId: {
+            make: {
               type: "string",
             },
-            href: {
+            model: {
               type: "string",
             },
-            reference: {
-              type: "object",
-              properties: {},
+            year: {
+              type: "number",
             },
           },
-          required: ["interactionId", "href", "reference"],
+          required: ["make", "model", "year"],
         },
       },
     },
@@ -111,13 +107,13 @@ const unsignedSchemaVC: VerifiableCredential = {
     dsnp: {
       display: {
         label: {
-          "en-US": "Verified Purchase",
+          "en-US": "Vehicle Owner",
         },
       },
       trust: {
         oneOf: [
-          `did:dsnp:${accreditor.dsnpUserId}#VerifiedBuyerPlatform`,
-          `did:dsnp:${accreditor.dsnpUserId}#VerifiedSellerPlatform`,
+          `did:dsnp:${accreditor.dsnpUserId}#CarDealership`,
+          `did:dsnp:${accreditor.dsnpUserId}#TaxOffice`,
         ],
       },
     },
@@ -127,40 +123,30 @@ const unsignedSchemaVC: VerifiableCredential = {
 const unsignedVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    {
-      "@vocab": "dsnp://654321#",
-    },
   ],
-  type: ["ProofOfPurchase", "VerifiableCredential"],
+  type: ["VehicleOwner", "VerifiableCredential"],
   issuer: "did:dsnp:654321",
   issuanceDate: new Date().toISOString(),
   credentialSchema: {
-    type: "VerifiableCredentialSchema2023",
-    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+    type: "JsonSchemaCredential",
+    id: "https://dsnp.org/schema/examples/vehicle_owner.json",
   },
   credentialSubject: {
-    interactionId: "TBD",
-    href: "http://somestore.com/product/999",
-    reference: {
-      internalTransactionId: "abc-123-def",
-    },
+    id: "did:dsnp:999999",
+    make: "DeLorean",
+    model: "DMC-12",
+    year: 1981,
   },
 };
 
 const unsignedAccreditationVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/ns/credentials/v2",
-    {
-      "@vocab": "dsnp://123456#",
-    },
   ],
-  type: ["VerifiedSellerPlatform", "VerifiableCredential"],
+  type: ["CarDealership", "VerifiableCredential"],
   issuer: "did:dsnp:123456",
   issuanceDate: new Date().toISOString(),
-  //  credentialSchema: {
-  //    type: "VerifiableCredentialSchema2023",
-  //    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
-  //  },
+  //  no credentialSchema; this is a schema-less credential
   credentialSubject: {
     id: "did:dsnp:654321",
   },
@@ -223,7 +209,7 @@ describe("dsnp-verifiable-credentials", () => {
   it("rejects if credential is expired", async () => {
     const testVC = structuredClone(unsignedVC);
     testVC.expirationDate = new Date().toISOString();
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     await setTimeout(100);
     let verifyResult = await vc.verify(testVC);
@@ -234,7 +220,7 @@ describe("dsnp-verifiable-credentials", () => {
   it("rejects if schema URL is not https", async () => {
     const testVC = structuredClone(unsignedVC);
     testVC.credentialSchema.id = "http://insecure.com";
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -248,7 +234,7 @@ describe("dsnp-verifiable-credentials", () => {
     testSchemaVC.type = ["SomeOtherType", "VerifiableCredential"];
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -262,7 +248,7 @@ describe("dsnp-verifiable-credentials", () => {
     testSchemaVC.credentialSubject.jsonSchema.title = "SomeOtherTitle";
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -274,8 +260,8 @@ describe("dsnp-verifiable-credentials", () => {
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
     const testVC = structuredClone(unsignedVC);
-    testVC.credentialSubject.href = 123;
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    testVC.credentialSubject.year = "Nineteen Eighty-One";
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -287,8 +273,8 @@ describe("dsnp-verifiable-credentials", () => {
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
     const testVC = structuredClone(unsignedVC);
-    testVC.issuer = "did:dsnp:" + fakeSeller.dsnpUserId;
-    const signResult = await vc.sign(testVC, fakeSeller.keyPair.signer());
+    testVC.issuer = "did:dsnp:" + fakeDealer.dsnpUserId;
+    const signResult = await vc.sign(testVC, fakeDealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -304,7 +290,6 @@ describe("dsnp-verifiable-credentials", () => {
       accreditor.keyPair.signer(),
     );
     expect(signSchemaResult.signed).toBe(true);
-    console.log(JSON.stringify(testSchemaVC, null, 2));
     let verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
 
@@ -312,7 +297,7 @@ describe("dsnp-verifiable-credentials", () => {
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
     // Sign a credential that uses the schema
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
     expect(signResult.signed).toBe(true);
 
     verifyResult = await vc.verify(testVC);
@@ -322,7 +307,7 @@ describe("dsnp-verifiable-credentials", () => {
     );
 
     // Should still work if we specify the correct attributeSetType
-    verifyResult = await vc.verify(testVC, "did:dsnp:123456#ProofOfPurchase");
+    verifyResult = await vc.verify(testVC, "did:dsnp:123456#VehicleOwner");
     expect(verifyResult.verified).toBe(true);
     expect(verifyResult.display).toStrictEqual(
       unsignedSchemaVC.credentialSubject.dsnp.display,
@@ -334,8 +319,16 @@ describe("dsnp-verifiable-credentials", () => {
     expect(verifyResult.reason).toBe("incorrectAttributeSetType");
 
     // Should fail if we specify the wrong attributeSetType issuer
-    verifyResult = await vc.verify(testVC, "did:dsnp:123457#ProofOfPurchase");
+    verifyResult = await vc.verify(testVC, "did:dsnp:123457#VehicleOwner");
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("incorrectAttributeSetType");
   }, 10_000);
+
+  it("derives AttributeSetType correctly", async () => {
+    const testVC = structuredClone(unsignedVC);
+    const signResult = await vc.sign(testVC, dealer.keyPair.signer());
+    expect(signResult.signed).toBe(true);
+    const attributeSetTypeSigned = await vc.getAttributeSetType(testVC);
+    expect(attributeSetTypeSigned).toBe("did:dsnp:123456#VehicleOwner");
+  });
 });

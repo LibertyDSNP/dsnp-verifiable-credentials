@@ -30,7 +30,7 @@ export interface VerifiableCredential {
   issuanceDate: string;
   expirationDate?: string;
   credentialSchema: {
-    type: "VerifiableCredentialSchema2023" | "JsonSchema";
+    type: "JsonSchemaCredential" | "JsonSchema";
     id: string;
     digestSRI?: string;
     [key: string]: any; // Allow additional keys
