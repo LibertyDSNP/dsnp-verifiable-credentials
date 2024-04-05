@@ -3,11 +3,10 @@ import {
   DIDResolutionResult,
   parse,
   Resolver,
-  Service,
   VerificationMethod,
 } from "did-resolver";
 import { DataIntegrityProof } from "@digitalbazaar/data-integrity";
-import { cryptosuite } from "@digitalbazaar/eddsa-2022-cryptosuite";
+import { cryptosuite } from "@digitalbazaar/eddsa-rdfc-2022-cryptosuite";
 import * as vc from "@digitalbazaar/vc";
 import jsig from "jsonld-signatures";
 const { extendContextLoader } = jsig;
@@ -17,6 +16,8 @@ import dataIntegrityContext from "@digitalbazaar/data-integrity-context";
 import credentialsContext from "credentials-context";
 import { sha256 } from "multiformats/hashes/sha2";
 import { base58btc } from "multiformats/bases/base58";
+import * as json from "multiformats/codecs/json";
+import { CID } from "multiformats/cid";
 
 type JsonLdContext =
   /* Either a string, or an array containing strings and objects with string values */
@@ -26,11 +27,17 @@ export interface VerifiableCredential {
   "@context": JsonLdContext;
   id?: string;
   type: string[];
-  issuer: string;
+  issuer:
+    | string
+    | {
+        id: string;
+        authority: [];
+        [key: string]: any;
+      };
   issuanceDate: string;
   expirationDate?: string;
   credentialSchema: {
-    type: "VerifiableCredentialSchema2023" | "JsonSchema";
+    type: "VerifiableCredentialSchema" | "JsonSchema";
     id: string;
     digestSRI?: string;
     [key: string]: any; // Allow additional keys
@@ -69,19 +76,6 @@ function findAssertionMethod(
   return foundMethod || null;
 }
 
-function findService(document: DIDDocument, fragment: string): Service | null {
-  if (!document.service) {
-    return null;
-  }
-  // TODO allow for single service as well as array?
-  const foundService = (document.service as Service[]).find(
-    (service: Service) => {
-      return service.id.endsWith("#" + encodeURIComponent(fragment));
-    },
-  );
-  return foundService || null;
-}
-
 export type SignResult = {
   signed: boolean;
   reason?: "exception";
@@ -106,17 +100,18 @@ export type VerifyResult = {
     | "unresolvableDid"
     | "fileNotFound"
     | "incorrectAttributeSetType"
+    | "fileIntegrityError"
     | "exception";
   context?: any;
   display?: object;
 };
 
 type DocumentLoaderResult = {
-  document: string | object,
-  documentUrl: string,
-  contextUrl: string | null,
+  document: string | object;
+  documentUrl: string;
+  contextUrl: string | null;
 };
-  
+
 export class DSNPVC {
   private loaderCache: { [schemaUrl: string]: object } = {};
   private didResolver: Resolver | null;
@@ -192,18 +187,21 @@ export class DSNPVC {
     return { signed: true };
   }
 
-  async verify(credential: VerifiableCredential, attributeSetType?: string): Promise<VerifyResult> {
+  async verify(
+    credential: VerifiableCredential,
+    attributeSetType?: string,
+  ): Promise<VerifyResult> {
     try {
-      // issuer should be a valid DID
-      if (!didRegex.test(credential.issuer)) {
+      // issuer or issuer.id should be a valid DID
+      const issuerId =
+        typeof credential.issuer === "string"
+          ? credential.issuer
+          : credential.issuer.id;
+      if (!didRegex.test(issuerId)) {
         return { verified: false, reason: "invalidDid" };
       }
       // proof.verificationMethod should start with issuer User URI + "#"
-      if (
-        !credential.proof?.verificationMethod.startsWith(
-          credential.issuer + "#",
-        )
-      ) {
+      if (!credential.proof?.verificationMethod.startsWith(issuerId + "#")) {
         return { verified: false, reason: "proofNotFromIssuer" };
       }
 
@@ -250,8 +248,12 @@ export class DSNPVC {
           return { verified: true };
         }
 
-        const { document: schemaDocument } = await this.documentLoader(schemaUrl);
-        const schemaCredential = (typeof schemaDocument === "string" ? JSON.parse(schemaDocument) : schemaDocument);
+        const { document: schemaDocument } =
+          await this.documentLoader(schemaUrl);
+        const schemaCredential =
+          typeof schemaDocument === "string"
+            ? JSON.parse(schemaDocument)
+            : schemaDocument;
         // Ensure that it is a schemaCredential
         if (schemaCredential.type.indexOf("JsonSchemaCredential") == -1) {
           return {
@@ -300,7 +302,7 @@ export class DSNPVC {
             const promises: Promise<VerifyResult>[] = [];
             trust.oneOf.forEach((attributeSetType: string) => {
               promises.push(
-                this.resolveAndVerifyCredential(
+                this.resolveAndVerifyAuthority(
                   credential.issuer,
                   attributeSetType,
                 ),
@@ -312,7 +314,7 @@ export class DSNPVC {
                 verified: false,
                 reason: "untrustedIssuer",
                 context: {
-                  issuer: credential.issuer,
+                  issuer: issuerId,
                   oneOf: trust.oneOf,
                   results,
                 },
@@ -323,7 +325,7 @@ export class DSNPVC {
             const promises: Promise<VerifyResult>[] = [];
             trust.oneOf.forEach((attributeSetType: string) => {
               promises.push(
-                this.resolveAndVerifyCredential(
+                this.resolveAndVerifyAuthority(
                   credential.issuer,
                   attributeSetType,
                 ),
@@ -335,7 +337,7 @@ export class DSNPVC {
                 verified: false,
                 reason: "untrustedIssuer",
                 context: {
-                  issuer: credential.issuer,
+                  issuer: issuerId,
                   oneOf: trust.oneOf,
                   results,
                 },
@@ -346,7 +348,10 @@ export class DSNPVC {
 
         // Check attributeSetType matches, if specified
         if (attributeSetType) {
-          const credentialAttributeSetType = await this.getAttributeSetType(credential, schemaDocument);
+          const credentialAttributeSetType = await this.getAttributeSetType(
+            credential,
+            schemaDocument,
+          );
           if (attributeSetType !== credentialAttributeSetType) {
             return {
               verified: false,
@@ -354,7 +359,7 @@ export class DSNPVC {
               context: {
                 attributeSetType,
                 credentialAttributeSetType,
-              }
+              },
             };
           }
         }
@@ -379,62 +384,84 @@ export class DSNPVC {
     }
   }
 
-  async resolveAndVerifyCredential(
-    did: string,
+  async resolveAndVerifyAuthority(
+    issuer:
+      | string
+      | {
+          id: string;
+          authority: {
+            id: string;
+            rel: string;
+            hash: string[];
+          }[];
+        },
     attributeSetType: string,
   ): Promise<VerifyResult> {
+    if (typeof issuer === "string") {
+      return {
+        verified: false,
+        reason: "untrustedIssuer",
+      };
+    }
+
     let context: {
       [key: string]: object | string;
     } = {
-      did,
+      issuer: issuer.id,
       attributeSetType,
     };
-    if (this.didResolver) {
-      const { didDocument, didResolutionMetadata } =
-        await this.didResolver.resolve(did);
-      if (didDocument) {
-        let service = findService(didDocument, attributeSetType);
-        if (service && service.serviceEndpoint) {
-          // TODO verify hash of retrieved document (if not IPFS)?
-          const endpoint: string = Array.isArray(service.serviceEndpoint)? service.serviceEndpoint[0] : service.serviceEndpoint;
-          let { document } = await this.documentLoader(endpoint);
-          if (!document)
-            return {
-              verified: false,
-              reason: "fileNotFound",
-              context: service,
-            };
-          const documentObj = (typeof document === "string") ? JSON.parse(document) : document;
-          // TODO verify that it is a VerifiableCredential before the "as"?
-          const accreditationCheckResult = await this.verify(
-            documentObj as VerifiableCredential,
-          );
-          if (accreditationCheckResult.verified) {
-            return accreditationCheckResult;
-          } else {
-            return {
-              verified: false,
-              reason: "untrustedIssuer",
-              context: {
-                issuerCredential: document,
-                verifyResult: accreditationCheckResult,
-              },
-            };
-          }
-        } else {
-          context["errorDetail"] =
-            "Could not find service[].serviceEndpoint for credential in document";
-          if (didDocument.service) {
-            context["service"] = didDocument.service;
-          }
-        }
+
+    // Does issuer claim to have matching authority?
+    const found = issuer.authority.find((authority) => {
+      return authority.rel === attributeSetType;
+    });
+
+    if (found) {
+      // TODO check that found.id URL is allowed
+      let { document } = await this.documentLoader(found.id);
+      if (!document)
+        return {
+          verified: false,
+          reason: "fileNotFound",
+          context: found.id,
+        };
+
+      // Verify hash of retrieved document against found.hash
+      // TODO make this work for other allowed hashes besides CIDv1 - need a generic library?
+      const documentBytes = (typeof document === "string") ? new TextEncoder().encode(document) :
+           json.encode(document);
+      const accreditationSha256 = await sha256.digest(documentBytes);
+      const accreditationCid = CID.create(1, json.code, accreditationSha256).toString();
+      if (!(found.hash.some((hash) => hash === accreditationCid))) {
+        return {
+          verified: false,
+          reason: "fileIntegrityError",
+          context: {
+            url: found.id,
+            expectedHash: found.hash,
+            calculatedHash: accreditationCid,
+          },
+        };
+      }
+
+      const documentObj =
+        typeof document === "string" ? JSON.parse(document) : document;
+      // TODO verify that it is a VerifiableCredential before the "as"?
+      const accreditationCheckResult = await this.verify(
+        documentObj as VerifiableCredential,
+      );
+      if (accreditationCheckResult.verified) {
+        return accreditationCheckResult;
       } else {
-        context["didResolutionMetadata"] = didResolutionMetadata;
+        context = {
+          issuerCredential: documentObj,
+          verifyResult: accreditationCheckResult,
+        };
       }
     }
     return {
       verified: false,
-      reason: "unresolvableDid",
+      reason: "untrustedIssuer",
       context,
     };
   }
@@ -444,6 +471,7 @@ export class DSNPVC {
     document: string | object;
     documentUrl: string;
   }) {
+//    if (typeof options.document === "object")
     this.loaderCache[options.documentUrl] = { ...options };
   }
 
@@ -451,14 +479,20 @@ export class DSNPVC {
    * Returns the (claimed) attributeSetType to use for a given credential, following the DSNP algorithm.
    * Note that this function does not perform verification of any kind; use the verify() method for that.
    */
-  async getAttributeSetType(credential: VerifiableCredential, schemaDocument: object | string | null = null): Promise<string> {
-    const vcType: string = credential.type.find((type) => type !== "VerifiableCredential") || "";
+  async getAttributeSetType(
+    credential: VerifiableCredential,
+    schemaDocument: object | string | null = null,
+  ): Promise<string> {
+    const vcType: string =
+      credential.type.find((type) => type !== "VerifiableCredential") || "";
 
     // Schema-less credentials use first type (if any)
-    if (!credential.credentialSchema) return "#" + vcType;
+    if (!credential.credentialSchema) return "$" + vcType;
 
     // Determine if the credentialSchema document is signed
-    const { document } = schemaDocument ? { document: schemaDocument } : await this.documentLoader(credential.credentialSchema.id);
+    const { document } = schemaDocument
+      ? { document: schemaDocument }
+      : await this.documentLoader(credential.credentialSchema.id);
     let schemaCredential: VerifiableCredential;
     let schemaCredentialString: string | null = null;
     if (typeof document === "string") {
@@ -467,14 +501,23 @@ export class DSNPVC {
     } else {
       schemaCredential = document as VerifiableCredential;
     }
-    if ((schemaCredential.type.indexOf("JsonSchemaCredential") == -1) || !schemaCredential.proof) {
+    if (
+      schemaCredential.type.indexOf("JsonSchemaCredential") == -1 ||
+      !schemaCredential.proof
+    ) {
       // Not a signed schema credential: calculate the sha2-256 hash only
-      // attributeSetType = {hash}#{vcType}
-      const message = new TextEncoder().encode(schemaCredentialString || JSON.stringify(schemaCredential));
-      return base58btc.encode(await sha256.encode(message)) + "#" + vcType;
+      // attributeSetType = {hash}${vcType}
+      const message = new TextEncoder().encode(
+        schemaCredentialString || JSON.stringify(schemaCredential),
+      );
+      return base58btc.encode(await sha256.encode(message)) + "$" + vcType;
     }
 
-    // attributeSetType = {issuer}#{vcType}
-    return schemaCredential.issuer + "#" + vcType;
+    // attributeSetType = {issuer}${vcType}
+    const schemaCredentialIssuerId =
+      typeof schemaCredential.issuer === "string"
+        ? schemaCredential.issuer
+        : schemaCredential.issuer.id;
+    return schemaCredentialIssuerId + "$" + vcType;
   }
 }

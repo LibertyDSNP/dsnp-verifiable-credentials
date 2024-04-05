@@ -5,6 +5,9 @@ import { DSNPResolver, getResolver } from "@dsnp/did-resolver";
 import { Resolver } from "did-resolver";
 import * as Ed25519Multikey from "@digitalbazaar/ed25519-multikey";
 import { setTimeout } from "timers/promises";
+import { sha256 } from "multiformats/hashes/sha2";
+import * as json from "multiformats/codecs/json";
+import { CID } from "multiformats/cid";
 
 type Actor = {
   keyPair: Ed25519Multikey;
@@ -39,25 +42,10 @@ class MockResolver implements DSNPResolver {
     const actor = actors.get(dsnpUserId);
     const assertionMethod = [await actor.keyPair.export({ publicKey: true })];
     const controller = `did:dsnp:${dsnpUserId}`;
-    const service = actor.isAccredited
-      ? [
-          {
-            id:
-              controller +
-              "#" +
-              encodeURIComponent(
-                `did:dsnp:${accreditor.dsnpUserId}#VerifiedSellerPlatform`,
-              ),
-            type: "DSNPAttributeSet",
-            serviceEndpoint: "mock://accreditation",
-          },
-        ]
-      : null;
     const output = {
       "@context": ["https://www.w3.org/ns/did/v1"],
       id: assertionMethod[0].controller,
       assertionMethod,
-      service,
     };
     return output;
   }
@@ -116,33 +104,10 @@ const unsignedSchemaVC: VerifiableCredential = {
       },
       trust: {
         oneOf: [
-          `did:dsnp:${accreditor.dsnpUserId}#VerifiedBuyerPlatform`,
-          `did:dsnp:${accreditor.dsnpUserId}#VerifiedSellerPlatform`,
+          `did:dsnp:${accreditor.dsnpUserId}$VerifiedBuyerPlatform`,
+          `did:dsnp:${accreditor.dsnpUserId}$VerifiedSellerPlatform`,
         ],
       },
-    },
-  },
-};
-
-const unsignedVC: VerifiableCredential = {
-  "@context": [
-    "https://www.w3.org/2018/credentials/v1",
-    {
-      "@vocab": "dsnp://654321#",
-    },
-  ],
-  type: ["ProofOfPurchase", "VerifiableCredential"],
-  issuer: "did:dsnp:654321",
-  issuanceDate: new Date().toISOString(),
-  credentialSchema: {
-    type: "VerifiableCredentialSchema2023",
-    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
-  },
-  credentialSubject: {
-    interactionId: "TBD",
-    href: "http://somestore.com/product/999",
-    reference: {
-      internalTransactionId: "abc-123-def",
     },
   },
 };
@@ -158,7 +123,7 @@ const unsignedAccreditationVC: VerifiableCredential = {
   issuer: "did:dsnp:123456",
   issuanceDate: new Date().toISOString(),
   //  credentialSchema: {
-  //    type: "VerifiableCredentialSchema2023",
+  //    type: "VerifiableCredentialSchema",
   //    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
   //  },
   credentialSubject: {
@@ -170,12 +135,49 @@ const resolver = new Resolver(getResolver([new MockResolver()]));
 
 const vc = new DSNPVC({ resolver });
 const accreditationVC = structuredClone(unsignedAccreditationVC);
-vc.sign(accreditationVC, accreditor.keyPair.signer());
+await vc.sign(accreditationVC, accreditor.keyPair.signer());
 
+const accreditationU8A = json.encode(accreditationVC);
+const accreditationSha256 = await sha256.digest(accreditationU8A);
+const accreditationCid = CID.create(1, json.code, accreditationSha256).toString();
 vc.addToCache({
   documentUrl: "mock://accreditation",
-  document: accreditationVC,
+  document: new TextDecoder().decode(accreditationU8A),
 });
+
+const unsignedVC: VerifiableCredential = {
+  "@context": [
+    "https://www.w3.org/2018/credentials/v1",
+    {
+      "@vocab": "dsnp://654321#", // Not ideal
+    },
+  ],
+  type: ["ProofOfPurchase", "VerifiableCredential"],
+  issuer: {
+    id: "did:dsnp:654321",
+    authority: [
+      {
+        id: "mock://accreditation",
+        rel: `did:dsnp:${accreditor.dsnpUserId}$VerifiedBuyerPlatform`,
+        hash: [
+          accreditationCid,
+        ],
+      },
+    ],
+  },
+  issuanceDate: new Date().toISOString(),
+  credentialSchema: {
+    type: "VerifiableCredentialSchema",
+    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+  },
+  credentialSubject: {
+    interactionId: "TBD",
+    href: "http://somestore.com/product/999",
+    reference: {
+      internalTransactionId: "abc-123-def",
+    },
+  },
+};
 
 describe("dsnp-verifiable-credentials", () => {
   it("rejects invalid issuer DID", async () => {
@@ -206,6 +208,8 @@ describe("dsnp-verifiable-credentials", () => {
     const testVC = structuredClone(unsignedVC);
     const signResult = await vc.sign(testVC, accreditor.keyPair.signer());
     expect(signResult.signed).toBe(true);
+    console.log(JSON.stringify(testVC, null, 2));
+
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("proofNotFromIssuer");
@@ -304,6 +308,7 @@ describe("dsnp-verifiable-credentials", () => {
       accreditor.keyPair.signer(),
     );
     expect(signSchemaResult.signed).toBe(true);
+    //    console.log(JSON.stringify(testSchemaVC));
 
     let verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
@@ -316,25 +321,26 @@ describe("dsnp-verifiable-credentials", () => {
     expect(signResult.signed).toBe(true);
 
     verifyResult = await vc.verify(testVC);
+    console.log(JSON.stringify(verifyResult, null, 2));
     expect(verifyResult.verified).toBe(true);
     expect(verifyResult.display).toStrictEqual(
       unsignedSchemaVC.credentialSubject.dsnp.display,
     );
 
     // Should still work if we specify the correct attributeSetType
-    verifyResult = await vc.verify(testVC, "did:dsnp:123456#ProofOfPurchase");
+    verifyResult = await vc.verify(testVC, "did:dsnp:123456$ProofOfPurchase");
     expect(verifyResult.verified).toBe(true);
     expect(verifyResult.display).toStrictEqual(
       unsignedSchemaVC.credentialSubject.dsnp.display,
     );
 
-    // Should fail if we specify the wrong attributeSetType #type
-    verifyResult = await vc.verify(testVC, "did:dsnp:123456#SomeOtherType");
+    // Should fail if we specify the wrong attributeSetType
+    verifyResult = await vc.verify(testVC, "did:dsnp:123456$SomeOtherType");
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("incorrectAttributeSetType");
 
     // Should fail if we specify the wrong attributeSetType issuer
-    verifyResult = await vc.verify(testVC, "did:dsnp:123457#ProofOfPurchase");
+    verifyResult = await vc.verify(testVC, "did:dsnp:123457$ProofOfPurchase");
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("incorrectAttributeSetType");
   });

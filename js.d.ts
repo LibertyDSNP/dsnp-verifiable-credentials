@@ -24,7 +24,7 @@ declare module "@digitalbazaar/data-integrity-context" {
 
 declare module "@digitalbazaar/ed25519-multikey" {}
 
-declare module "@digitalbazaar/eddsa-2022-cryptosuite" {
+declare module "@digitalbazaar/eddsa-rdfc-2022-cryptosuite" {
   export const cryptosuite: object;
 }
 
