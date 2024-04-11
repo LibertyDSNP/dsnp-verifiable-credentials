@@ -8,6 +8,7 @@ import { setTimeout } from "timers/promises";
 import { sha256 } from "multiformats/hashes/sha2";
 import * as json from "multiformats/codecs/json";
 import { CID } from "multiformats/cid";
+import { generateCID } from "@dsnp/hash-util";
 
 type Actor = {
   keyPair: Ed25519Multikey;
@@ -139,10 +140,10 @@ await vc.sign(accreditationVC, accreditor.keyPair.signer());
 
 const accreditationU8A = json.encode(accreditationVC);
 const accreditationSha256 = await sha256.digest(accreditationU8A);
-const accreditationCid = CID.create(1, json.code, accreditationSha256).toString();
+const accreditationCid = generateCID(accreditationU8A).toString();
 vc.addToCache({
   documentUrl: "mock://accreditation",
-  document: new TextDecoder().decode(accreditationU8A),
+  document: accreditationVC,
 });
 
 const unsignedVC: VerifiableCredential = {
@@ -159,9 +160,7 @@ const unsignedVC: VerifiableCredential = {
       {
         id: "mock://accreditation",
         rel: `did:dsnp:${accreditor.dsnpUserId}$VerifiedBuyerPlatform`,
-        hash: [
-          accreditationCid,
-        ],
+        hash: [accreditationCid],
       },
     ],
   },
@@ -208,7 +207,6 @@ describe("dsnp-verifiable-credentials", () => {
     const testVC = structuredClone(unsignedVC);
     const signResult = await vc.sign(testVC, accreditor.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    console.log(JSON.stringify(testVC, null, 2));
 
     let verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
@@ -308,7 +306,6 @@ describe("dsnp-verifiable-credentials", () => {
       accreditor.keyPair.signer(),
     );
     expect(signSchemaResult.signed).toBe(true);
-    //    console.log(JSON.stringify(testSchemaVC));
 
     let verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
@@ -321,7 +318,6 @@ describe("dsnp-verifiable-credentials", () => {
     expect(signResult.signed).toBe(true);
 
     verifyResult = await vc.verify(testVC);
-    console.log(JSON.stringify(verifyResult, null, 2));
     expect(verifyResult.verified).toBe(true);
     expect(verifyResult.display).toStrictEqual(
       unsignedSchemaVC.credentialSubject.dsnp.display,

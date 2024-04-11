@@ -17,7 +17,7 @@ import credentialsContext from "credentials-context";
 import { sha256 } from "multiformats/hashes/sha2";
 import { base58btc } from "multiformats/bases/base58";
 import * as json from "multiformats/codecs/json";
-import { CID } from "multiformats/cid";
+import { compareBinaryToMultibaseHashes } from "@dsnp/hash-util";
 
 type JsonLdContext =
   /* Either a string, or an array containing strings and objects with string values */
@@ -427,22 +427,23 @@ export class DSNPVC {
         };
 
       // Verify hash of retrieved document against found.hash
-      // TODO make this work for other allowed hashes besides CIDv1 - need a generic library?
-      const documentBytes = (typeof document === "string") ? new TextEncoder().encode(document) :
-           json.encode(document);
-      const accreditationSha256 = await sha256.digest(documentBytes);
-      const accreditationCid = CID.create(1, json.code, accreditationSha256).toString();
-      if (!(found.hash.some((hash) => hash === accreditationCid))) {
+      const documentBytes =
+        typeof document === "string"
+          ? new TextEncoder().encode(document)
+          : json.encode(document);
+      const hasMatch = compareBinaryToMultibaseHashes(
+        documentBytes,
+        found.hash,
+      );
+      if (!hasMatch)
         return {
           verified: false,
           reason: "fileIntegrityError",
           context: {
             url: found.id,
             expectedHash: found.hash,
-            calculatedHash: accreditationCid,
           },
         };
-      }
 
       const documentObj =
         typeof document === "string" ? JSON.parse(document) : document;
@@ -471,7 +472,7 @@ export class DSNPVC {
     document: string | object;
     documentUrl: string;
   }) {
-//    if (typeof options.document === "object")
+    //    if (typeof options.document === "object")
     this.loaderCache[options.documentUrl] = { ...options };
   }
 
