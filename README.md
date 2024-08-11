@@ -1,26 +1,54 @@
 # Overview
 
-This package is a TypeScript implementation of a specific configuration of W3C Verifiable Credentials for use with [DSNP](https://dsnp.org/).
+This package is a TypeScript implementation of specific configurations of W3C Verifiable Credentials for use with [DSNP](https://dsnp.org/).
 
 ## Background
 
 This work relies upon the following specifications:
 
-* Verifiable Credential Data Model 1.1 (W3C Recommendation)
-* Verifiable Credential Data Integrity 1.0 (W3C Working Draft)
-* Verifiable Credentials JSON Schema (W3C Working Draft)
-* JSON Schema 2020-12
+* [Verifiable Credential Data Model 1.1 (W3C Recommendation 03 March 2022)](https://www.w3.org/TR/2022/REC-vc-data-model-20220303/)
+* [Verifiable Credential Data Model 2.0 (W3C Candidate Recommendation Draft 09 August 2024)](https://www.w3.org/TR/2024/CRD-vc-data-model-2.0-20240809/)
+* [Verifiable Credential Data Integrity 1.0 (W3C Candidate Recommendation Draft 03 August 2024)](https://www.w3.org/TR/2024/CRD-vc-data-integrity-20240803/)
+* [Verifiable Credentials JSON Schema (W3C Candidate Recommendation Draft 18 December 2023)](https://www.w3.org/TR/2023/CRD-vc-json-schema-20231218/)
+* [JSON Schema 2020-12](https://json-schema.org/specification)
+* [Decentralized Identifiers (DIDs) v1.0 (W3C Recommendation 19 July 2022)](https://www.w3.org/TR/2022/REC-did-core-20220719/)
 
-It can be used to generate and verify Verifiable Credentials with proofs based on a DSNP user's `assertionMethod` key pair, for use with DSNP Attribute Set Announcements as well as interaction tags for use within DSNP content and associated applications.
+### Summary of Supported Configurations
+
+#### Verifiable Credential Document
+
+- The first item in `"@context"` MUST be `"https://www.w3.org/2018/credentials/v1"` or `"https://www.w3.org/ns/credentials/v2"`
+- `"type"` MUST include `"VerifiableCredential"`
+- `credentialSchema.id` MUST be a `https://` URL
+- `credentialSchema.type` MUST be either `"JsonSchema"` or `"JsonSchemaCredential"`
+- `issuer` (if a string) or `issuer.id` MUST be a valid DID and start with `did:`
+- `proof.verificationMethod` MUST start with the issuer DID followed by the `#` character
+
+#### Verifiable Credential Schema Document
+
+- all of the above requirements for a Verifiable Credential Document MUST be adhered to
+- `"type"` MUST include `"JsonSchemaCredential"`
+- `credentialSchema.id` MUST be `"https://www.w3.org/2022/credentials/v2/json-schema-credential-schema.json"`
+- `credentialSchema.type` MUST be `"JsonSchema"`
+- `credentialSchema.digestSRI` SHOULD be `"sha384-S57yQDg1MTzF56Oi9DbSQ14u7jBy0RDdx0YbeV7shwhCS88G8SCXeFq82PafhCrW"`, but this is not checked
+- `credentialSubject.type` MUST be `"JsonSchema"` and include an embedded JSON Schema Document in `credentialSubject.jsonSchema`.
+
+#### JSON Schema Document (Standalone or Embedded)
+
+- `"$schema"` MUST be `"https://json-schema.org/draft/2020-12/schema"` 
+
+## Relationship to DSNP
+
+This library can be used to generate and verify Verifiable Credentials with proofs based on a DSNP user's `assertionMethod` key pair, for use with DSNP Attribute Set Announcements as well as interaction and attestation attachments for use within DSNP content and associated applications.
 
 Verification in a DSNP context involves answering several questions:
 
 * Is the credential unexpired?
 * Can the signature on the credential be verified against the issuer's public key published via DSNP?
 * If the credential specifies a schema, does the credential's claim data validate against the JSON schema specified?
-* If the JSON schema itself is signed, is that signature valid and unexpired?
-* Is the issuer trusted to issue credentials of this type (as determined by the schema creator)?
-* How should the validity of the credential be displayed in a social networking user interface?
+* If the JSON schema itself is a signed JsonSchemaCredential, is that signature valid and unexpired?
+* Is the issuer trusted to issue credentials of this type (as determined by the schema creator)? (DSNP extension)
+* How should the validity of the credential be displayed in a social networking user interface? (DSNP extension)
 
 ## Cryptography
 
@@ -106,9 +134,6 @@ if (verifyResult.verified) {
 On failure, `verifyResult.verified` will be `false` with the relevant error captured in `verifyResult.reason` and `verifyResult.context`.
 
 ### Implementation notes
-
-In this version, verification will only succeed if the credential is issued from a DSNP DID and the public key is verifiably owned by the DSNP user associated with the DID.
-This means that the non-fragment portion of the `verificationMethod` associated with the proof must be the same as the issuer's DID.
 
 This version does not yet support resolution of key ownership via an `alsoKnownAs` alias within the user's DID document.
 

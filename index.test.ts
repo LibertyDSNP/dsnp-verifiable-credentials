@@ -1,14 +1,12 @@
-import type { VerifiableCredential } from "./types.js";
+import type { VerifiableCredential, JsonSchema_2020_12 } from "./types.js";
 import { DSNPVC } from "./index.js";
-import { base58btc } from "multiformats/bases/base58";
 import { DSNPResolver, getResolver } from "@dsnp/did-resolver";
 import { Resolver } from "did-resolver";
 import * as Ed25519Multikey from "@digitalbazaar/ed25519-multikey";
 import { setTimeout } from "timers/promises";
+import { base32 } from "multiformats/bases/base32";
 import { sha256 } from "multiformats/hashes/sha2";
 import * as json from "multiformats/codecs/json";
-import { CID } from "multiformats/cid";
-import { generateCID } from "@dsnp/hash-util";
 
 type Actor = {
   keyPair: Ed25519Multikey;
@@ -52,17 +50,38 @@ class MockResolver implements DSNPResolver {
   }
 }
 
+const simpleSchema: JsonSchema_2020_12 = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  title: "ProofOfPurchase",
+  type: "object",
+  properties: {
+    credentialSubject: {
+      type: "object",
+      properties: {
+        interactionId: {
+          type: "string",
+        },
+        href: {
+          type: "string",
+        },
+        reference: {
+          type: "object",
+          properties: {},
+        },
+      },
+      required: ["interactionId", "href", "reference"],
+    },
+  },
+};
+
 const unsignedSchemaVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/2018/credentials/v1",
-    {
-      "@vocab": "dsnp://123456#",
-    },
+    "https://www.w3.org/ns/credentials/undefined-terms/v2",
   ],
-  id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+  id: "https://dsnp.org/schema/examples/proof_of_purchase_credential.json",
   type: ["VerifiableCredential", "JsonSchemaCredential"],
   issuer: "did:dsnp:123456",
-  issuanceDate: new Date().toISOString(),
   expirationDate: "2099-01-01T00:00:00.000Z",
   credentialSchema: {
     id: "https://www.w3.org/2022/credentials/v2/json-schema-credential-schema.json",
@@ -72,31 +91,7 @@ const unsignedSchemaVC: VerifiableCredential = {
   },
   credentialSubject: {
     type: "JsonSchema",
-
-    jsonSchema: {
-      $schema: "https://json-schema.org/draft/2020-12/schema",
-      title: "ProofOfPurchase",
-      type: "object",
-      properties: {
-        credentialSubject: {
-          type: "object",
-          properties: {
-            interactionId: {
-              type: "string",
-            },
-            href: {
-              type: "string",
-            },
-            reference: {
-              type: "object",
-              properties: {},
-            },
-          },
-          required: ["interactionId", "href", "reference"],
-        },
-      },
-    },
-
+    jsonSchema: simpleSchema,
     dsnp: {
       display: {
         label: {
@@ -116,16 +111,13 @@ const unsignedSchemaVC: VerifiableCredential = {
 const unsignedAccreditationVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/2018/credentials/v1",
-    {
-      "@vocab": "dsnp://123456#",
-    },
+    "https://www.w3.org/ns/credentials/undefined-terms/v2",
   ],
   type: ["VerifiedSellerPlatform", "VerifiableCredential"],
   issuer: "did:dsnp:123456",
-  issuanceDate: new Date().toISOString(),
   //  credentialSchema: {
   //    type: "VerifiableCredentialSchema",
-  //    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+  //    id: "https://dsnp.org/schema/examples/verified_seller_platform_schema.json",
   //  },
   credentialSubject: {
     id: "did:dsnp:654321",
@@ -140,18 +132,27 @@ await vc.sign(accreditationVC, accreditor.keyPair.signer());
 
 const accreditationU8A = json.encode(accreditationVC);
 const accreditationSha256 = await sha256.digest(accreditationU8A);
-const accreditationCid = generateCID(accreditationU8A).toString();
+const accreditationMultihash = base32.encode(accreditationSha256.bytes);
+
 vc.addToCache({
   documentUrl: "mock://accreditation",
   document: accreditationVC,
 });
 
+const credentialSchemaUsingJsonSchemaCredential = {
+  type: "JsonSchemaCredential",
+  id: "https://dsnp.org/schema/examples/proof_of_purchase_credential.json",
+};
+
+const credentialSchemaUsingJsonSchema = {
+  type: "JsonSchema",
+  id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+};
+
 const unsignedVC: VerifiableCredential = {
   "@context": [
     "https://www.w3.org/2018/credentials/v1",
-    {
-      "@vocab": "dsnp://654321#", // Not ideal
-    },
+    "https://www.w3.org/ns/credentials/undefined-terms/v2",
   ],
   type: ["ProofOfPurchase", "VerifiableCredential"],
   issuer: {
@@ -160,15 +161,39 @@ const unsignedVC: VerifiableCredential = {
       {
         id: "mock://accreditation",
         rel: `did:dsnp:${accreditor.dsnpUserId}$VerifiedBuyerPlatform`,
-        hash: [accreditationCid],
+        hash: [accreditationMultihash],
       },
     ],
   },
   issuanceDate: new Date().toISOString(),
-  credentialSchema: {
-    type: "VerifiableCredentialSchema",
-    id: "https://dsnp.org/schema/examples/proof_of_purchase.json",
+  credentialSchema: credentialSchemaUsingJsonSchemaCredential,
+  credentialSubject: {
+    interactionId: "TBD",
+    href: "http://somestore.com/product/999",
+    reference: {
+      internalTransactionId: "abc-123-def",
+    },
   },
+};
+
+const unsignedVCv2: VerifiableCredential = {
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://www.w3.org/ns/credentials/undefined-terms/v2",
+  ],
+  type: ["ProofOfPurchase", "VerifiableCredential"],
+  issuer: {
+    id: "did:dsnp:654321",
+    authority: [
+      {
+        id: "mock://accreditation",
+        rel: `did:dsnp:${accreditor.dsnpUserId}$VerifiedBuyerPlatform`,
+        hash: [accreditationMultihash],
+      },
+    ],
+  },
+  validFrom: new Date().toISOString(),
+  credentialSchema: credentialSchemaUsingJsonSchemaCredential,
   credentialSubject: {
     interactionId: "TBD",
     href: "http://somestore.com/product/999",
@@ -297,9 +322,44 @@ describe("dsnp-verifiable-credentials", () => {
     expect(verifyResult.reason).toBe("untrustedIssuer");
   });
 
-  it("works for valid documents", async () => {
+  async function testHappyPath(testVC: VerifiableCredential, testSchemaVC: VerifiableCredential | JsonSchema_2020_12, expectedNamespace: string) {
+    // Sign a credential that uses the schema
+    const signResult = await vc.sign(testVC, seller.keyPair.signer());
+    expect(signResult.signed).toBe(true);
+
+    let verifyResult = await vc.verify(testVC);
+    expect(verifyResult.verified).toBe(true);
+
+    if (testVC.credentialSchema.type === "JsonSchemaCredential") {
+      expect(verifyResult.display).toStrictEqual(
+        unsignedSchemaVC.credentialSubject.dsnp.display,
+      );
+    }
+
+    // Should still work if we specify the correct attributeSetType
+    verifyResult = await vc.verify(testVC, `${expectedNamespace}$ProofOfPurchase`);
+    expect(verifyResult.verified).toBe(true);
+    if (testVC.credentialSchema.type === "JsonSchemaCredential") {
+      expect(verifyResult.display).toStrictEqual(
+        unsignedSchemaVC.credentialSubject.dsnp.display,
+      );
+    }
+
+    // Should fail if we specify the wrong attributeSetType
+    verifyResult = await vc.verify(testVC, `${expectedNamespace}$SomeOtherType`);
+    expect(verifyResult.verified).toBe(false);
+    expect(verifyResult.reason).toBe("incorrectAttributeSetType");
+
+    // Should fail if we specify the wrong attributeSetType issuer
+    verifyResult = await vc.verify(testVC, "did:dsnp:666666$ProofOfPurchase");
+    expect(verifyResult.verified).toBe(false);
+    expect(verifyResult.reason).toBe("incorrectAttributeSetType");
+  }
+
+  it("works for valid v1 documents using JsonSchemaCredential", async () => {
     const testVC = structuredClone(unsignedVC);
     const testSchemaVC = structuredClone(unsignedSchemaVC);
+
     // Sign the schema
     const signSchemaResult = await vc.sign(
       testSchemaVC,
@@ -313,31 +373,52 @@ describe("dsnp-verifiable-credentials", () => {
     // Register the schema with the document loader cache
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    // Sign a credential that uses the schema
-    const signResult = await vc.sign(testVC, seller.keyPair.signer());
-    expect(signResult.signed).toBe(true);
+    await testHappyPath(testVC, testSchemaVC, "did:dsnp:123456");
+  });
+        
+  it("works for valid v1 documents using JsonSchema", async () => {
+    const testVC = structuredClone(unsignedVC);
+    testVC.credentialSchema = credentialSchemaUsingJsonSchema;
 
-    verifyResult = await vc.verify(testVC);
-    expect(verifyResult.verified).toBe(true);
-    expect(verifyResult.display).toStrictEqual(
-      unsignedSchemaVC.credentialSubject.dsnp.display,
+    // Register the schema with the document loader cache
+    vc.addToCache({
+      document: simpleSchema,
+      documentUrl: testVC.credentialSchema.id,
+    });
+
+    await testHappyPath(testVC, simpleSchema, "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky");
+  });
+
+  it("works for valid v2 documents using JsonSchemaCredential", async () => {
+    const testVC = structuredClone(unsignedVCv2);
+    const testSchemaVC = structuredClone(unsignedSchemaVC);
+
+    // Sign the schema
+    const signSchemaResult = await vc.sign(
+      testSchemaVC,
+      accreditor.keyPair.signer(),
     );
+    expect(signSchemaResult.signed).toBe(true);
 
-    // Should still work if we specify the correct attributeSetType
-    verifyResult = await vc.verify(testVC, "did:dsnp:123456$ProofOfPurchase");
+    let verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
-    expect(verifyResult.display).toStrictEqual(
-      unsignedSchemaVC.credentialSubject.dsnp.display,
-    );
 
-    // Should fail if we specify the wrong attributeSetType
-    verifyResult = await vc.verify(testVC, "did:dsnp:123456$SomeOtherType");
-    expect(verifyResult.verified).toBe(false);
-    expect(verifyResult.reason).toBe("incorrectAttributeSetType");
+    // Register the schema with the document loader cache
+    vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    // Should fail if we specify the wrong attributeSetType issuer
-    verifyResult = await vc.verify(testVC, "did:dsnp:123457$ProofOfPurchase");
-    expect(verifyResult.verified).toBe(false);
-    expect(verifyResult.reason).toBe("incorrectAttributeSetType");
+    await testHappyPath(testVC, testSchemaVC, "did:dsnp:123456");
+  });
+
+  it("works for valid v2 documents using JsonSchema", async () => {
+    const testVC = structuredClone(unsignedVCv2);
+    testVC.credentialSchema = credentialSchemaUsingJsonSchema;
+
+    // Register the schema with the document loader cache
+    vc.addToCache({
+      document: simpleSchema,
+      documentUrl: testVC.credentialSchema.id,
+    });
+
+    await testHappyPath(testVC, simpleSchema, "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky");
   });
 });

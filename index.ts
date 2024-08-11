@@ -13,15 +13,21 @@ const { extendContextLoader } = jsig;
 import Ajv2020 from "ajv/dist/2020.js"; // Use 2020-12 schema
 import jsonld from "jsonld";
 import dataIntegrityContext from "@digitalbazaar/data-integrity-context";
-import credentialsContext from "credentials-context";
+import * as credentialsContext from "@digitalbazaar/credentials-context";
 import { sha256 } from "multiformats/hashes/sha2";
-import { base58btc } from "multiformats/bases/base58";
+import { base32 } from "multiformats/bases/base32";
 import * as json from "multiformats/codecs/json";
 import { compareBinaryToMultibaseHashes } from "@dsnp/hash-util";
 
 type JsonLdContext =
   /* Either a string, or an array containing strings and objects with string values */
   string | (string | { [name: string]: string })[];
+
+export interface JsonSchema_2020_12 {
+  $schema: "https://json-schema.org/draft/2020-12/schema";
+  title: string;
+  [key: string]: any; // Allow additional keys
+}
 
 export interface VerifiableCredential {
   "@context": JsonLdContext;
@@ -37,7 +43,7 @@ export interface VerifiableCredential {
   issuanceDate: string;
   expirationDate?: string;
   credentialSchema: {
-    type: "VerifiableCredentialSchema" | "JsonSchema";
+    type: "JsonSchemaCredential" | "JsonSchema";
     id: string;
     digestSRI?: string;
     [key: string]: any; // Allow additional keys
@@ -122,9 +128,13 @@ export class DSNPVC {
       document: dataIntegrityContext.CONTEXT,
       documentUrl: dataIntegrityContext.CONTEXT_URL,
     });
-    this.addToCache({
-      document: credentialsContext.CONTEXT,
-      documentUrl: credentialsContext.CONTEXT_URL,
+
+    ["v1", "v2", "undefined-terms-v2"].forEach(shortName => {
+      const contextMetadata = credentialsContext.named.get(shortName);
+      this.addToCache({
+        document: contextMetadata.context,
+        documentUrl: contextMetadata.id
+      });
     });
 
     this.didResolver = options.resolver;
@@ -232,6 +242,8 @@ export class DSNPVC {
         };
       }
 
+      let display = undefined;
+
       // Retrieve schema
       // TODO should we allow credentials with no schema?
       if (credential.credentialSchema) {
@@ -250,101 +262,106 @@ export class DSNPVC {
 
         const { document: schemaDocument } =
           await this.documentLoader(schemaUrl);
-        const schemaCredential =
-          typeof schemaDocument === "string"
-            ? JSON.parse(schemaDocument)
-            : schemaDocument;
-        // Ensure that it is a schemaCredential
-        if (schemaCredential.type.indexOf("JsonSchemaCredential") == -1) {
-          return {
-            verified: false,
-            reason: "unknownSchemaType",
-            context: { type: schemaCredential.type },
-          };
-        }
 
-        // Check the schema credential's schema title against the type of the VC
-        if (
-          credential.type.indexOf(
-            schemaCredential.credentialSubject.jsonSchema.title,
-          ) == -1
-        ) {
-          return {
-            verified: false,
-            reason: "credentialTitleMismatch",
-            context: {
-              title: schemaCredential.credentialSubject.jsonSchema.title,
-              type: credential.type,
-            },
-          };
-        }
-
-        // Verify the schema credential's proof
-        const schemaVerifyResult = await this.verify(schemaCredential);
-
-        // Validate the credential against its schema
-        const valid = ajv.validate(
-          schemaCredential.credentialSubject.jsonSchema,
-          credential,
-        );
-        if (!valid) {
-          return {
-            verified: false,
-            reason: "schemaValidationError",
-            context: ajv.errors || undefined,
-          };
-        }
-
-        // Check for required trust chains
-        if (schemaCredential.credentialSubject.dsnp?.trust) {
-          const trust: any = schemaCredential.credentialSubject.dsnp.trust;
-          if (trust.oneOf) {
-            const promises: Promise<VerifyResult>[] = [];
-            trust.oneOf.forEach((attributeSetType: string) => {
-              promises.push(
-                this.resolveAndVerifyAuthority(
-                  credential.issuer,
-                  attributeSetType,
-                ),
-              );
-            });
-            const results = await Promise.all(promises);
-            if (!results.some((result) => result.verified)) {
-              return {
-                verified: false,
-                reason: "untrustedIssuer",
-                context: {
-                  issuer: issuerId,
-                  oneOf: trust.oneOf,
-                  results,
-                },
-              };
-            }
+        if (credential.credentialSchema.type === "JsonSchemaCredential") {
+          const schemaCredential =
+            typeof schemaDocument === "string"
+              ? JSON.parse(schemaDocument)
+              : schemaDocument;
+          // Ensure that it is a schemaCredential
+          if (schemaCredential.type.indexOf("JsonSchemaCredential") == -1) {
+            return {
+              verified: false,
+              reason: "unknownSchemaType",
+              context: { type: schemaCredential.type },
+            };
           }
-          if (trust.allOf) {
-            const promises: Promise<VerifyResult>[] = [];
-            trust.oneOf.forEach((attributeSetType: string) => {
-              promises.push(
-                this.resolveAndVerifyAuthority(
-                  credential.issuer,
-                  attributeSetType,
-                ),
-              );
-            });
-            const results = await Promise.all(promises);
-            if (!results.every((result) => result.verified)) {
-              return {
-                verified: false,
-                reason: "untrustedIssuer",
-                context: {
-                  issuer: issuerId,
-                  oneOf: trust.oneOf,
-                  results,
-                },
-              };
-            }
+
+          // Check the schema credential's schema title against the type of the VC
+          if (
+            credential.type.indexOf(
+              schemaCredential.credentialSubject.jsonSchema.title,
+            ) == -1
+          ) {
+            return {
+              verified: false,
+              reason: "credentialTitleMismatch",
+              context: {
+                title: schemaCredential.credentialSubject.jsonSchema.title,
+                type: credential.type,
+              },
+            };
           }
-        } // has trust section
+
+          // Verify the schema credential's proof
+          const schemaVerifyResult = await this.verify(schemaCredential);
+
+          // Validate the credential against its schema
+          const valid = ajv.validate(
+            schemaCredential.credentialSubject.jsonSchema,
+            credential,
+          );
+          if (!valid) {
+            return {
+              verified: false,
+              reason: "schemaValidationError",
+              context: ajv.errors || undefined,
+            };
+          }
+
+          // Check for required trust chains
+          if (schemaCredential.credentialSubject.dsnp?.trust) {
+            const trust: any = schemaCredential.credentialSubject.dsnp.trust;
+            if (trust.oneOf) {
+              const promises: Promise<VerifyResult>[] = [];
+              trust.oneOf.forEach((attributeSetType: string) => {
+                promises.push(
+                  this.resolveAndVerifyAuthority(
+                    credential.issuer,
+                    attributeSetType,
+                  ),
+                );
+              });
+              const results = await Promise.all(promises);
+              if (!results.some((result) => result.verified)) {
+                return {
+                  verified: false,
+                  reason: "untrustedIssuer",
+                  context: {
+                    issuer: issuerId,
+                    oneOf: trust.oneOf,
+                    results,
+                  },
+                };
+              }
+            }
+            if (trust.allOf) {
+              const promises: Promise<VerifyResult>[] = [];
+              trust.oneOf.forEach((attributeSetType: string) => {
+                promises.push(
+                  this.resolveAndVerifyAuthority(
+                    credential.issuer,
+                    attributeSetType,
+                  ),
+                );
+              });
+              const results = await Promise.all(promises);
+              if (!results.every((result) => result.verified)) {
+                return {
+                  verified: false,
+                  reason: "untrustedIssuer",
+                  context: {
+                    issuer: issuerId,
+                    oneOf: trust.oneOf,
+                    results,
+                  },
+                };
+              }
+            }
+          } // has trust section
+
+          display = schemaCredential.credentialSubject.dsnp?.display;
+        } // type JsonSchemaCredential
 
         // Check attributeSetType matches, if specified
         if (attributeSetType) {
@@ -365,7 +382,7 @@ export class DSNPVC {
         }
         return {
           verified: true,
-          display: schemaCredential.credentialSubject.dsnp?.display,
+          display,
         };
       } // has schema
 
@@ -490,35 +507,58 @@ export class DSNPVC {
     // Schema-less credentials use first type (if any)
     if (!credential.credentialSchema) return "$" + vcType;
 
-    // Determine if the credentialSchema document is signed
     const { document } = schemaDocument
       ? { document: schemaDocument }
       : await this.documentLoader(credential.credentialSchema.id);
-    let schemaCredential: VerifiableCredential;
-    let schemaCredentialString: string | null = null;
-    if (typeof document === "string") {
-      schemaCredential = JSON.parse(document);
-      schemaCredentialString = document;
-    } else {
-      schemaCredential = document as VerifiableCredential;
-    }
-    if (
-      schemaCredential.type.indexOf("JsonSchemaCredential") == -1 ||
-      !schemaCredential.proof
-    ) {
-      // Not a signed schema credential: calculate the sha2-256 hash only
-      // attributeSetType = {hash}${vcType}
-      const message = new TextEncoder().encode(
-        schemaCredentialString || JSON.stringify(schemaCredential),
-      );
-      return base58btc.encode(await sha256.encode(message)) + "$" + vcType;
+
+    // Credentials with JsonSchemaCredential
+    if (credential.credentialSchema.type === "JsonSchemaCredential") {
+      // Determine if the credentialSchema document is signed
+      let schemaCredential: VerifiableCredential;
+      let schemaCredentialString: string | null = null;
+      if (typeof document === "string") {
+        schemaCredential = JSON.parse(document);
+        schemaCredentialString = document;
+      } else {
+        schemaCredential = document as VerifiableCredential;
+      }
+      if (
+        schemaCredential.type.indexOf("JsonSchemaCredential") == -1 ||
+        !schemaCredential.proof
+      ) {
+        // Not a signed schema credential: calculate the sha2-256 hash only
+        // attributeSetType = {hash}${vcType}
+        const message = new TextEncoder().encode(
+          schemaCredentialString || JSON.stringify(schemaCredential),
+        );
+        return (await makeMultihash(message)) + "$" + vcType;
+      }
+
+      // attributeSetType = {issuer}${vcType}
+      const schemaCredentialIssuerId =
+        typeof schemaCredential.issuer === "string"
+          ? schemaCredential.issuer
+          : schemaCredential.issuer.id;
+      return schemaCredentialIssuerId + "$" + vcType;
     }
 
-    // attributeSetType = {issuer}${vcType}
-    const schemaCredentialIssuerId =
-      typeof schemaCredential.issuer === "string"
-        ? schemaCredential.issuer
-        : schemaCredential.issuer.id;
-    return schemaCredentialIssuerId + "$" + vcType;
+    // Not using JsonSchemaCredential: calculate the sha2-256 hash only
+    let schema: JsonSchema_2020_12;
+    let schemaString: string | null = null;
+    if (typeof document === "string") {
+      schema = JSON.parse(document);
+      schemaString = document;
+    } else {
+      schema = document as JsonSchema_2020_12;
+    }
+    const message = new TextEncoder().encode(
+      schemaString || JSON.stringify(schema),
+    );
+    return (await makeMultihash(message)) + "$" + vcType;
   }
+}
+
+async function makeMultihash(message: Uint8Array) {
+  const digest = await sha256.encode(message);
+  return base32.encode(new Uint8Array([0x12, 0x20, ...digest]));
 }
