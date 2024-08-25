@@ -33,3 +33,10 @@ declare module "jsonld" {
 declare module "@digitalbazaar/credentials-context" {
   export const named: Map;
 }
+
+declare module "@digitalbazaar/did-io" {
+  export class CachedResolver {
+    constructor(options: any);
+    get(options: any);
+  }
+}

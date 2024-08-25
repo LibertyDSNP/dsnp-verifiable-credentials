@@ -1,10 +1,4 @@
-import {
-  DIDDocument,
-  DIDResolutionResult,
-  parse,
-  Resolver,
-  VerificationMethod,
-} from "did-resolver";
+import { CachedResolver } from "@digitalbazaar/did-io";
 import { DataIntegrityProof } from "@digitalbazaar/data-integrity";
 import { cryptosuite } from "@digitalbazaar/eddsa-rdfc-2022-cryptosuite";
 import * as vc from "@digitalbazaar/vc";
@@ -61,19 +55,25 @@ export interface VerifiableCredential {
 const ajv = new Ajv2020.default();
 const nodeDocumentLoader = jsonld.documentLoaders.node();
 
+type VerificationMethod = {
+  id: string;
+};
+
 /**
  * Finds an assertionMethod within the DID document with a matching
  * fragment identifier.
  */
 function findAssertionMethod(
-  document: DIDDocument,
+  document: {
+    assertionMethod?: VerificationMethod[];
+  },
   fragment: string,
-): VerificationMethod | null {
+): object | null {
   if (!document.assertionMethod) {
     return null;
   }
   // TODO allow for single assertionMethod as well as array?
-  const foundMethod = (document.assertionMethod as VerificationMethod[]).find(
+  const foundMethod = document.assertionMethod.find(
     (verificationMethod: VerificationMethod) => {
       return verificationMethod.id.endsWith("#" + fragment);
     },
@@ -120,20 +120,20 @@ type DocumentLoaderResult = {
 
 export class DSNPVC {
   private loaderCache: { [schemaUrl: string]: object } = {};
-  private didResolver: Resolver | null;
+  private didResolver: CachedResolver | null;
   private documentLoader: (url: string) => Promise<DocumentLoaderResult>;
 
-  constructor(options: { resolver: null | Resolver }) {
+  constructor(options: { resolver: null | CachedResolver }) {
     this.addToCache({
       document: dataIntegrityContext.CONTEXT,
       documentUrl: dataIntegrityContext.CONTEXT_URL,
     });
 
-    ["v1", "v2", "undefined-terms-v2"].forEach(shortName => {
+    ["v1", "v2", "undefined-terms-v2"].forEach((shortName) => {
       const contextMetadata = credentialsContext.named.get(shortName);
       this.addToCache({
         document: contextMetadata.context,
-        documentUrl: contextMetadata.id
+        documentUrl: contextMetadata.id,
       });
     });
 
@@ -150,13 +150,19 @@ export class DSNPVC {
       // Resolve DID URLs via the DID resolver framework
       if (url.startsWith("did:")) {
         if (this.didResolver) {
-          const { didDocument } = await this.didResolver.resolve(url);
+          const fragmentIndex = url.lastIndexOf("#");
+          const baseDid =
+            fragmentIndex === -1 ? url : url.substring(0, fragmentIndex);
+          const didDocument = await this.didResolver.get({ did: baseDid });
           if (didDocument) {
             let document: object | null = didDocument;
-            // We have a DIDDocument, but might only need a key identified by fragment
-            const parsed = parse(url);
-            if (parsed?.fragment) {
-              document = findAssertionMethod(didDocument, parsed.fragment);
+            // We have a DID document, but might only need a key identified by fragment
+
+            if (fragmentIndex !== -1) {
+              document = findAssertionMethod(
+                didDocument,
+                url.substring(fragmentIndex + 1),
+              );
               //TODO deal with null value here?
             }
             return { document };

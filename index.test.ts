@@ -1,7 +1,7 @@
 import type { VerifiableCredential, JsonSchema_2020_12 } from "./types.js";
 import { DSNPVC } from "./index.js";
-import { DSNPResolver, getResolver } from "@dsnp/did-resolver";
-import { Resolver } from "did-resolver";
+import didDsnp from "@dsnp/did-resolver";
+import { CachedResolver } from "@digitalbazaar/did-io";
 import * as Ed25519Multikey from "@digitalbazaar/ed25519-multikey";
 import { setTimeout } from "timers/promises";
 import { base32 } from "multiformats/bases/base32";
@@ -36,7 +36,7 @@ const actors = new Map()
   .set(buyer.dsnpUserId, buyer);
 
 // Mock a DSNP system DID resolver
-class MockResolver implements DSNPResolver {
+class MockResolver implements didDsnp.DSNPResolver {
   async resolve(dsnpUserId: bigint) {
     const actor = actors.get(dsnpUserId);
     const assertionMethod = [await actor.keyPair.export({ publicKey: true })];
@@ -124,7 +124,8 @@ const unsignedAccreditationVC: VerifiableCredential = {
   },
 };
 
-const resolver = new Resolver(getResolver([new MockResolver()]));
+const resolver = new CachedResolver();
+resolver.use(didDsnp.driver([new MockResolver()]));
 
 const vc = new DSNPVC({ resolver });
 const accreditationVC = structuredClone(unsignedAccreditationVC);
@@ -322,7 +323,11 @@ describe("dsnp-verifiable-credentials", () => {
     expect(verifyResult.reason).toBe("untrustedIssuer");
   });
 
-  async function testHappyPath(testVC: VerifiableCredential, testSchemaVC: VerifiableCredential | JsonSchema_2020_12, expectedNamespace: string) {
+  async function testHappyPath(
+    testVC: VerifiableCredential,
+    testSchemaVC: VerifiableCredential | JsonSchema_2020_12,
+    expectedNamespace: string,
+  ) {
     // Sign a credential that uses the schema
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
@@ -337,7 +342,10 @@ describe("dsnp-verifiable-credentials", () => {
     }
 
     // Should still work if we specify the correct attributeSetType
-    verifyResult = await vc.verify(testVC, `${expectedNamespace}$ProofOfPurchase`);
+    verifyResult = await vc.verify(
+      testVC,
+      `${expectedNamespace}$ProofOfPurchase`,
+    );
     expect(verifyResult.verified).toBe(true);
     if (testVC.credentialSchema.type === "JsonSchemaCredential") {
       expect(verifyResult.display).toStrictEqual(
@@ -346,7 +354,10 @@ describe("dsnp-verifiable-credentials", () => {
     }
 
     // Should fail if we specify the wrong attributeSetType
-    verifyResult = await vc.verify(testVC, `${expectedNamespace}$SomeOtherType`);
+    verifyResult = await vc.verify(
+      testVC,
+      `${expectedNamespace}$SomeOtherType`,
+    );
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("incorrectAttributeSetType");
 
@@ -375,7 +386,7 @@ describe("dsnp-verifiable-credentials", () => {
 
     await testHappyPath(testVC, testSchemaVC, "did:dsnp:123456");
   });
-        
+
   it("works for valid v1 documents using JsonSchema", async () => {
     const testVC = structuredClone(unsignedVC);
     testVC.credentialSchema = credentialSchemaUsingJsonSchema;
@@ -386,7 +397,11 @@ describe("dsnp-verifiable-credentials", () => {
       documentUrl: testVC.credentialSchema.id,
     });
 
-    await testHappyPath(testVC, simpleSchema, "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky");
+    await testHappyPath(
+      testVC,
+      simpleSchema,
+      "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky",
+    );
   });
 
   it("works for valid v2 documents using JsonSchemaCredential", async () => {
@@ -419,6 +434,10 @@ describe("dsnp-verifiable-credentials", () => {
       documentUrl: testVC.credentialSchema.id,
     });
 
-    await testHappyPath(testVC, simpleSchema, "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky");
+    await testHappyPath(
+      testVC,
+      simpleSchema,
+      "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky",
+    );
   });
 });
