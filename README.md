@@ -59,8 +59,7 @@ This library generates and verifies Verifiable Credential `DataIntegrity` proofs
 
 This library utilizes a number of open source projects and the authors are grateful for the efforts of the following projects:
 
-* [Digital Bazaar](https://www.digitalbazaar.com/)'s libraries for JSON Linked Data, Verifiable Credentials, Data Integrity proofs, Multikeys, and eddsa/ed25519 cryptography
-* [Decentralized Identity Foundation](https://identity.foundation/)'s framework for DID resolution
+* [Digital Bazaar](https://www.digitalbazaar.com/)'s libraries for DID resolution, JSON Linked Data, Verifiable Credentials, Data Integrity proofs, Multikeys, and eddsa/ed25519 cryptography
 * [Ajv JSON schema validator](https://ajv.js.org/)
 
 # Usage
@@ -70,15 +69,16 @@ This library utilizes a number of open source projects and the authors are grate
 The `DSNPVC` class encapsulates signing and verifying functions, as well as a document cache.
 Its constructor takes an object that must contain the following keys:
 
-- `resolver`: An instance of `Resolver` from the `did-resolver` package.
+- `resolver`: An instance of `CachedResolver` from the `@digitalbazaar/did-io` package.
 
 ```
 import { DSNPVC } from "@dsnp/verifiable-credentials";
-import { Resolver } from "did-resolver";
-import { getResolver } from "@dsnp/did-resolver";
+import { CachedResolver } from "@digitalbazaar/did-io";
+import didDsnp from "@dsnp/did-resolver";
 import { FooResolver } from "dsnp-did-resolver-{foo}";
 
-const resolver = new Resolver(getResolver([new FooResolver(/* options */)]));
+const resolver = new CachedResolver();
+resolver.use(didDsnp.driver([new FooResolver(/* options */)]));
 
 const vc = new DSNPVC({ resolver });
 ```
