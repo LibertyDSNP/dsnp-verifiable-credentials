@@ -1,8 +1,6 @@
 declare module "@digitalbazaar/vc" {
   export function defaultDocumentLoader(url: string): any;
-  export function issue(
-    params: any,
-  ): import("./types/openapi.d.ts").Components.Schemas.VerifiableCredentialWithEd25519Proof;
+  export function issue(params: any): any;
   export function verifyCredential(options: any): any;
 }
 
@@ -32,7 +30,13 @@ declare module "jsonld" {
   export const documentLoaders: { node: () => any };
 }
 
-declare module "credentials-context" {
-  export const CONTEXT: object;
-  export const CONTEXT_URL: string;
+declare module "@digitalbazaar/credentials-context" {
+  export const named: Map;
+}
+
+declare module "@digitalbazaar/did-io" {
+  export class CachedResolver {
+    constructor(options: any);
+    get(options: any);
+  }
 }
