@@ -1,0 +1,36 @@
+name: Release Package
+on:
+  release:
+    types: [ released ]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish-to-npm:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.7.0
+          registry-url: 'https://registry.npmjs.org'
+          cache-dependency-path: package-lock.json
+
+      - name: Install 💾
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Version ⬆️
+        run: npm version --new-version ${{ github.event.release.tag_name }} --no-git-tag-version
+        working-directory: dist
+
+      - name: Publish 🚂
+        run: npm publish
+        working-directory: dist
