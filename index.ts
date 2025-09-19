@@ -1,3 +1,5 @@
+/* eslint-disable  @typescript-eslint/no-explicit-any */
+
 import { CachedResolver } from "@digitalbazaar/did-io";
 import { DataIntegrityProof } from "@digitalbazaar/data-integrity";
 import { cryptosuite } from "@digitalbazaar/eddsa-rdfc-2022-cryptosuite";
@@ -234,7 +236,7 @@ export class DSNPVC {
               valid: proof.proofPurpose === "assertionMethod",
             };
           },
-          match: (proof: any, { document, documentLoader }: any) => {
+          match: (_proof: any, { _document, _documentLoader }: any) => {
             return true;
           },
         },
@@ -300,7 +302,7 @@ export class DSNPVC {
           }
 
           // Verify the schema credential's proof
-          const schemaVerifyResult = await this.verify(schemaCredential);
+          const _schemaVerifyResult = await this.verify(schemaCredential);
 
           // Validate the credential against its schema
           const valid = ajv.validate(
@@ -441,7 +443,7 @@ export class DSNPVC {
 
     if (found) {
       // TODO check that found.id URL is allowed
-      let { document } = await this.documentLoader(found.id);
+      const { document } = await this.documentLoader(found.id);
       if (!document)
         return {
           verified: false,

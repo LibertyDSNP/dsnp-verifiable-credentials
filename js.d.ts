@@ -1,3 +1,5 @@
+/* eslint-disable  @typescript-eslint/no-explicit-any */
+
 declare module "@digitalbazaar/vc" {
   export function defaultDocumentLoader(url: string): any;
   export function issue(params: any): any;
