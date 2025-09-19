@@ -9,7 +9,7 @@ const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url));
 
 // eslint-disable-next-line
-import rootPackage from "../package.json" assert { type: "json" };
+import rootPackage from "../package.json" with { type: "json" };
 
 // Don't keep scripts
 delete rootPackage["scripts"];

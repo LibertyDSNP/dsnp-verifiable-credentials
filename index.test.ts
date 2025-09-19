@@ -40,7 +40,6 @@ class MockResolver implements didDsnp.DSNPResolver {
   async resolve(dsnpUserId: bigint) {
     const actor = actors.get(dsnpUserId);
     const assertionMethod = [await actor.keyPair.export({ publicKey: true })];
-    const controller = `did:dsnp:${dsnpUserId}`;
     const output = {
       "@context": ["https://www.w3.org/ns/did/v1"],
       id: assertionMethod[0].controller,
@@ -224,7 +223,7 @@ describe("dsnp-verifiable-credentials", () => {
     testVC.issuer = controller;
     const signResult = await vc.sign(testVC, keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("invalidDid");
   });
@@ -234,7 +233,7 @@ describe("dsnp-verifiable-credentials", () => {
     const signResult = await vc.sign(testVC, accreditor.keyPair.signer());
     expect(signResult.signed).toBe(true);
 
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("proofNotFromIssuer");
   });
@@ -243,7 +242,7 @@ describe("dsnp-verifiable-credentials", () => {
     const testVC = structuredClone(unsignedVC);
     const signResult = await vc.sign(testVC, accreditor.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("proofNotFromIssuer");
   });
@@ -254,7 +253,7 @@ describe("dsnp-verifiable-credentials", () => {
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
     await setTimeout(100);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("signatureFailsVerification");
   });
@@ -264,7 +263,7 @@ describe("dsnp-verifiable-credentials", () => {
     testVC.credentialSchema.id = "http://insecure.com";
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("schemaUrlNotHttps");
   });
@@ -278,7 +277,7 @@ describe("dsnp-verifiable-credentials", () => {
 
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("unknownSchemaType");
   });
@@ -292,7 +291,7 @@ describe("dsnp-verifiable-credentials", () => {
 
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("credentialTitleMismatch");
   });
@@ -305,7 +304,7 @@ describe("dsnp-verifiable-credentials", () => {
     testVC.credentialSubject.href = 123;
     const signResult = await vc.sign(testVC, seller.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("schemaValidationError");
   });
@@ -318,14 +317,14 @@ describe("dsnp-verifiable-credentials", () => {
     testVC.issuer = "did:dsnp:" + fakeSeller.dsnpUserId;
     const signResult = await vc.sign(testVC, fakeSeller.keyPair.signer());
     expect(signResult.signed).toBe(true);
-    let verifyResult = await vc.verify(testVC);
+    const verifyResult = await vc.verify(testVC);
     expect(verifyResult.verified).toBe(false);
     expect(verifyResult.reason).toBe("untrustedIssuer");
   });
 
   async function testHappyPath(
     testVC: VerifiableCredential,
-    testSchemaVC: VerifiableCredential | JsonSchema_2020_12,
+    _testSchemaVC: VerifiableCredential | JsonSchema_2020_12,
     expectedNamespace: string,
   ) {
     // Sign a credential that uses the schema
@@ -378,7 +377,7 @@ describe("dsnp-verifiable-credentials", () => {
     );
     expect(signSchemaResult.signed).toBe(true);
 
-    let verifyResult = await vc.verify(testSchemaVC);
+    const verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
 
     // Register the schema with the document loader cache
@@ -415,7 +414,7 @@ describe("dsnp-verifiable-credentials", () => {
     );
     expect(signSchemaResult.signed).toBe(true);
 
-    let verifyResult = await vc.verify(testSchemaVC);
+    const verifyResult = await vc.verify(testSchemaVC);
     expect(verifyResult.verified).toBe(true);
 
     // Register the schema with the document loader cache
