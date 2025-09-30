@@ -33,7 +33,7 @@ declare module "jsonld" {
 }
 
 declare module "@digitalbazaar/credentials-context" {
-  export const named: Map;
+  export const named: Map<string, any>;
 }
 
 declare module "@digitalbazaar/did-io" {
