@@ -383,7 +383,7 @@ describe("dsnp-verifiable-credentials", () => {
     // Register the schema with the document loader cache
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    await testHappyPath(testVC, testSchemaVC, "did:dsnp:123456");
+    expect(() => testHappyPath(testVC, testSchemaVC, "did:dsnp:123456")).not.toThrow();
   });
 
   it("works for valid v1 documents using JsonSchema", async () => {
@@ -396,11 +396,12 @@ describe("dsnp-verifiable-credentials", () => {
       documentUrl: testVC.credentialSchema.id,
     });
 
-    await testHappyPath(
+    expect(() => testHappyPath(
       testVC,
       simpleSchema,
       "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky",
-    );
+    )).not.toThrow();
+
   });
 
   it("works for valid v2 documents using JsonSchemaCredential", async () => {
@@ -420,7 +421,7 @@ describe("dsnp-verifiable-credentials", () => {
     // Register the schema with the document loader cache
     vc.addToCache({ document: testSchemaVC, documentUrl: testSchemaVC.id });
 
-    await testHappyPath(testVC, testSchemaVC, "did:dsnp:123456");
+    expect(() => testHappyPath(testVC, testSchemaVC, "did:dsnp:123456")).not.toThrow();
   });
 
   it("works for valid v2 documents using JsonSchema", async () => {
@@ -433,10 +434,10 @@ describe("dsnp-verifiable-credentials", () => {
       documentUrl: testVC.credentialSchema.id,
     });
 
-    await testHappyPath(
+    expect(() => testHappyPath(
       testVC,
       simpleSchema,
       "bciqais7o43bo3xl2xqo6ogvj2wpcjb2nuvby57qsyl4h63gqrmtx4ky",
-    );
+    )).not.toThrow();
   });
 });
